@@ -1,6 +1,10 @@
 // src/components/ScriptEditor/index.tsx
 import React, { useState, useCallback, useRef, useEffect } from 'react';
 import { ChevronLeft, ChevronRight, Sparkles, AlertCircle, RefreshCw } from 'lucide-react';
+import { ScriptEmptyState } from './ScriptEmptyState';
+import { ScriptContentLoader } from './ScriptContentLoader';
+import { ScrollPositionManager } from './ScrollPositionManager';
+import { MemoizedScriptElement } from './MemoizedScriptElement';
 import { ScriptElement } from '../ScriptElement';
 import { Header } from '../Header';
 import { LeftSidebar } from '../LeftSidebar';
@@ -51,6 +55,8 @@ export function ScriptEditor({ scriptId, initialViewMode = 'script', scriptState
     scriptState.context.currentSceneSegmentId || null
   );
   const [isLoadingScript, setIsLoadingScript] = useState(false);
+  const [isGeneratingNextScene, setIsGeneratingNextScene] = useState(false);
+  const [isGeneratingFirstScene, setIsGeneratingFirstScene] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [hasAttemptedLoad, setHasAttemptedLoad] = useState(false);
   const { showAlert } = useAlert();
@@ -86,9 +92,11 @@ export function ScriptEditor({ scriptId, initialViewMode = 'script', scriptState
   const [suggestionsEnabled, setSuggestionsEnabled] = useState<boolean>(false);
   const contentRef = useRef<HTMLDivElement>(null);
   const elementRefs = useRef<{ [key: string]: React.RefObject<any> }>({});
-  // const [beatsDisabled, setBeatsDisabled] = useState(false);
   const [beatsAvailable, setBeatsAvailable] = useState(true);
 
+  const previousElementsRef = useRef<ScriptElementType[]>([]);
+  const loadedSegmentIdsRef = useRef<Set<string>>(new Set());
+  
 
 
   // Handle view mode changes
@@ -123,10 +131,8 @@ export function ScriptEditor({ scriptId, initialViewMode = 'script', scriptState
       setBeatsAvailable(false);
     }
   }, [scriptState.context.creationMethod]);
-  
 
-
-  // Fetch script segments when the component mounts
+  // Fetch script metadata when the component mounts
   useEffect(() => {
     // Skip if we've already attempted to load or scriptId is missing or already loaded this specific script
     if (!scriptId || hasAttemptedLoad || loadedScriptIdRef.current === scriptId) {
@@ -137,7 +143,7 @@ export function ScriptEditor({ scriptId, initialViewMode = 'script', scriptState
     // Remember this script ID to prevent duplicate loads
     loadedScriptIdRef.current = scriptId;
 
-    async function fetchScriptSegments() {
+    async function fetchScriptMetadata() {
       try {
         setIsLoadingScript(true);
         setLoadError(null);
@@ -145,29 +151,20 @@ export function ScriptEditor({ scriptId, initialViewMode = 'script', scriptState
         // Get script metadata first to set title and other properties
         const metadata = await api.getScriptMetadata(scriptId);
         setTitle(metadata.title || `Script ${scriptId.slice(0, 8)}`);
-
-        // If script has scenes, fetch the segments
+        
+        // Update first scene completion status based on metadata
         if (scriptState.context.scenesCount > 0) {
-          const data = await api.getScriptSegments(scriptId);
-
-          if (data.segments && data.segments.length > 0) {
-            // Convert segments to script elements
-            const scriptElements = api.convertSegmentsToScriptElements(data.segments);
-
-            // Only update if we got some elements
-            if (scriptElements.length > 0) {
-              setElements(scriptElements);
-              setSelectedElement(scriptElements[0].id);
-              setHasCompletedFirstScene(true);
-              setActiveTab('scenes');
-            }
-          } else {
-            console.log('No segments returned from API, but request was successful');
-          }
+          setHasCompletedFirstScene(true);
+          setActiveTab('scenes');
+        } else if (scriptState.context.creationMethod === 'WITH_AI' && scriptState.context.hasBeats) {
+          // If it's an AI script with beats but no scenes, we should be ready to generate the first scene
+          console.log('AI script with beats but no scenes - ready for first scene generation');
         }
-        showAlert('success', 'Script loaded successfully');
+        
+        // Note: We don't load script segments here anymore - that's handled by ScriptContentLoader
+        
       } catch (error) {
-        console.error('Failed to fetch script segments:', error);
+        console.error('Failed to fetch script metadata:', error);
         setLoadError(error instanceof Error ? error.message : 'Failed to load script');
         showAlert('error', error instanceof Error ? error.message : 'Failed to load script');
       } finally {
@@ -175,102 +172,176 @@ export function ScriptEditor({ scriptId, initialViewMode = 'script', scriptState
         setHasAttemptedLoad(true);
       }
     }
-    fetchScriptSegments();
-  }, [scriptId, showAlert, hasAttemptedLoad, scriptState.context.scenesCount]);
+    fetchScriptMetadata();
+  }, [scriptId, showAlert, hasAttemptedLoad, scriptState.context.scenesCount, scriptState.context.creationMethod, scriptState.context.hasBeats]);
 
   // Handle generated script elements from the BeatSheetView
   const handleGeneratedScriptElements = (generatedElements: ScriptElementType[], sceneSegmentId: string) => {
     // Save the scene segment ID
     setCurrentSceneSegmentId(sceneSegmentId);
+    // Add this segment ID to our tracking set
+    loadedSegmentIdsRef.current.add(sceneSegmentId);
+
+    // Check if we already have this segment
+    const hasSegment = elements.some(el => el.sceneSegmentId === sceneSegmentId);
+
+    if (hasSegment) {
+      console.log(`Segment ${sceneSegmentId} already exists, not adding duplicate content`);
+      return;
+    }
+
     // Replace empty elements with generated ones, or append them if there's content
     if (elements.length === 1 && elements[0].content === '') {
       setElements(generatedElements);
     } else {
-      setElements([...elements, ...generatedElements]);
+      // Add new elements and sort by position
+      const combinedElements = [...elements, ...generatedElements];
+      
+      // Group by segment and sort
+      const segmentGroups = new Map<string, ScriptElementType[]>();
+      
+      combinedElements.forEach(element => {
+        const segId = element.sceneSegmentId || 'unsegmented';
+        if (!segmentGroups.has(segId)) {
+          segmentGroups.set(segId, []);
+        }
+        segmentGroups.get(segId)?.push(element);
+      });
+      
+      // Sort segments by position
+      const sortedSegmentIds = Array.from(segmentGroups.keys())
+        .filter(id => id !== 'unsegmented')
+        .sort((a, b) => {
+          const aPosition = combinedElements.find(el => el.sceneSegmentId === a)?.position || 0;
+          const bPosition = combinedElements.find(el => el.sceneSegmentId === b)?.position || 0;
+          return aPosition - bPosition;
+        });
+      
+      // Add unsegmented elements at the end if they exist
+      if (segmentGroups.has('unsegmented')) {
+        sortedSegmentIds.push('unsegmented');
+      }
+      
+      // Flatten the sorted groups
+      const sortedElements: ScriptElementType[] = [];
+      sortedSegmentIds.forEach(segmentId => {
+        const segmentElements = segmentGroups.get(segmentId) || [];
+        sortedElements.push(...segmentElements);
+      });
+      
+      setElements(sortedElements);
     }
+    
     // Select the first element of the generated script
     if (generatedElements.length > 0) {
       setSelectedElement(generatedElements[0].id);
     }
+    
     // Update application state
     setHasCompletedFirstScene(true);
     setActiveTab('scenes');
+    
+    // Save current elements for comparison in future updates
+    previousElementsRef.current = [...elements];
+    
     // Switch to script view
     handleViewModeChange('script');
   };
 
   // Generate next scene handler
   const handleGenerateNextScene = async () => {
-    if (!currentSceneSegmentId) {
-      showAlert('error', 'No current scene found to continue from');
+    if (!scriptId) {
+      showAlert('error', 'Script ID is missing');
       return;
     }
+    
     try {
-      // Call the API directly to generate the next scene
-      const result = await api.generateNextScene(scriptId, currentSceneSegmentId);
+      setIsGeneratingNextScene(true);
+      
+      // Call the API to generate the next scene
+      const result = await api.generateNextScene(scriptId, currentSceneSegmentId || '');
+      
       if (result.success) {
         // Update the scene segment ID
         setCurrentSceneSegmentId(result.scene_segment_id || null);
-        // Fetch the new scene content
-        const data = await api.getScriptSegments(scriptId);
-        if (data.segments && data.segments.length > 0) {
-          // Get only the newest segment (the generated one)
-          const newSegment = data.segments[data.segments.length - 1];
-          const newElements = api.convertSceneComponentsToElements(newSegment.components);
+        
+        if (result.generated_segment?.components) {
+          // Convert the components to script elements
+          const newElements = api.convertSceneComponentsToElements(result.generated_segment.components);
+          
           // Append the new elements to the existing script
           setElements(prev => [...prev, ...newElements]);
-          // Select the first element of the new scene and scroll into view
+          
+          // Select the first element of the new scene
           if (newElements.length > 0) {
             setSelectedElement(newElements[0].id);
-            setTimeout(() => {
-              const elementRef = elementRefs.current[newElements[0].id];
-              if (elementRef?.current) {
-                elementRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' });
-              }
-            }, 100);
+            
+            // Let the ScrollPositionManager handle scrolling to the selected element
+            // This ensures scroll position is maintained correctly
           }
+          
           showAlert('success', 'Next scene generated successfully');
+        } else {
+          throw new Error('No script components were generated');
         }
       } else {
-        throw new Error('Failed to generate next scene');
+        throw new Error(result.error || 'Failed to generate next scene');
       }
     } catch (error) {
       console.error('Error generating next scene:', error);
       showAlert('error', error instanceof Error ? error.message : 'Failed to generate next scene');
+    } finally {
+      setIsGeneratingNextScene(false);
     }
   };
 
   // Generate first script from beats
   const handleGenerateScript = async () => {
+    if (!scriptId) {
+      showAlert('error', 'Script ID is missing');
+      return;
+    }
+    
     try {
+      setIsGeneratingFirstScene(true);
+      
       // Call the API directly to generate the script
       const result = await api.generateScript(scriptId);
+      
       if (result.success) {
         // Set the scene segment ID
         setCurrentSceneSegmentId(result.scene_segment_id || null);
-        // Fetch the new scene content
-        const data = await api.getScriptSegments(scriptId);
-        if (data.segments && data.segments.length > 0) {
-          const scriptElements = api.convertSegmentsToScriptElements(data.segments);
+        
+        if (result.generated_segment?.components) {
+          // Convert the components to script elements
+          const scriptElements = api.convertSceneComponentsToElements(result.generated_segment.components);
+          
           // Update elements
           setElements(scriptElements);
+          
           // Select the first element
           if (scriptElements.length > 0) {
             setSelectedElement(scriptElements[0].id);
           }
+          
           // Update state
           setHasCompletedFirstScene(true);
           setActiveTab('scenes');
+          
           // Switch to script view
           handleViewModeChange('script');
           showAlert('success', 'Script generated successfully');
+        } else {
+          throw new Error('No script components were generated');
         }
       } else {
-        throw new Error('Failed to generate script');
+        throw new Error(result.error || 'Failed to generate script');
       }
     } catch (error) {
       console.error('Error generating script:', error);
       showAlert('error', error instanceof Error ? error.message : 'Failed to generate script');
+    } finally {
+      setIsGeneratingFirstScene(false);
     }
   };
 
@@ -595,6 +666,12 @@ Copyright: ${titlePage.copyright}
     );
   }
 
+  // Handle empty script state - when elements are empty but script should have content
+  const isScriptEmpty = elements.length === 1 && elements[0].content === '';
+  const showEmptyStateMessage = isScriptEmpty && 
+                               scriptState.context.creationMethod === 'WITH_AI' && 
+                               scriptState.context.hasBeats;
+
   return (
     <div className="h-screen bg-gray-100 flex flex-col overflow-hidden">
       <Header
@@ -612,7 +689,6 @@ Copyright: ${titlePage.copyright}
         onGenerateScript={handleGenerateScript}
         scriptState={scriptState.state}
         beatsAvailable={beatsAvailable}
-
       />
 
       <div className="flex-1 flex overflow-hidden">
@@ -652,13 +728,10 @@ Copyright: ${titlePage.copyright}
               onSwitchToScript={() => setViewMode('script')}
               onGeneratedScriptElements={handleGeneratedScriptElements}
               currentSceneSegmentId={currentSceneSegmentId}
-              // beatsDisabled={beatsDisabled} // Pass the beatsDisabled state
               beatsAvailable={beatsAvailable}
-
             />
           </div>
         ) : viewMode === 'boards' ? (
-
           <div className="flex-1 flex items-center justify-center bg-gray-100">
             <div className="text-center p-8">
               <h2 className="text-xl font-semibold text-gray-800 mb-4">Boards View</h2>
@@ -671,54 +744,77 @@ Copyright: ${titlePage.copyright}
               width: `var(--page-width, ${formatSettings.pageLayout.width}in)`,
               margin: '0 auto'
             }}>
-              <div ref={contentRef} className="screenplay-content" style={{
-                padding: `var(--page-margin-top, ${formatSettings.pageLayout.marginTop}in) var(--page-margin-right, ${formatSettings.pageLayout.marginRight}in) var(--page-margin-bottom, ${formatSettings.pageLayout.marginBottom}in) var(--page-margin-left, ${formatSettings.pageLayout.marginLeft}in)`,
-                minHeight: `var(--page-height, ${formatSettings.pageLayout.height}in)`
-              }}>
-                {elements.map((element, index) => (
-                  <div
-                    key={element.id}
-                    className="element-wrapper"
-                    data-type={element.type}
-                    style={{
-                      textAlign: formatSettings.elements[element.type].alignment,
-                      marginTop: `var(--${element.type}-spacing-before, ${formatSettings.elements[element.type].spacingBefore}rem)`,
-                      marginBottom: `var(--${element.type}-spacing-after, ${formatSettings.elements[element.type].spacingAfter}rem)`
-                    }}
-                  >
-                    {pages.includes(index) && (
-                      <div className="page-break">
-                        <div className="page-number">Page {pages.findIndex(p => p === index) + 2}</div>
-                      </div>
-                    )}
-                    <ScriptElement
-                      ref={elementRefs.current[element.id]}
-                      {...element}
-                      isSelected={selectedElement === element.id}
-                      onChange={handleElementChange}
-                      onKeyDown={handleKeyDown}
-                      onFocus={setSelectedElement}
-                      onTypeChange={handleTypeChange}
-                      autoFocus={element.id === elements[elements.length - 1].id}
-                      onAIAssistClick={handleAIAssistClick}
-                      elements={elements}
-                      onAddComment={handleAddComment}
-                      activeCommentId={activeCommentId}
-                      comments={comments.filter(c =>
-                        elementRefs.current[element.id]?.current?.containsCommentRange?.(c.from, c.to)
+              <ScrollPositionManager
+                elements={elements}
+                selectedElementId={selectedElement}
+                contentRef={contentRef}
+                elementRefs={elementRefs}
+              >
+                <div ref={contentRef} className="screenplay-content" style={{
+                  padding: `var(--page-margin-top, ${formatSettings.pageLayout.marginTop}in) var(--page-margin-right, ${formatSettings.pageLayout.marginRight}in) var(--page-margin-bottom, ${formatSettings.pageLayout.marginBottom}in) var(--page-margin-left, ${formatSettings.pageLayout.marginLeft}in)`,
+                  minHeight: `var(--page-height, ${formatSettings.pageLayout.height}in)`
+                }}>
+                  {/* Content Loader Component for Progressive Loading */}
+                  <ScriptContentLoader
+                    scriptId={scriptId}
+                    creationMethod={scriptState.context.creationMethod}
+                    initialElements={elements}
+                    onElementsLoaded={setElements}
+                    onSceneSegmentIdUpdate={setCurrentSceneSegmentId}
+                    showAlert={showAlert}
+                    isGeneratingFirstScene={isGeneratingFirstScene}
+                    onGenerateScript={handleGenerateScript}
+                  />
+                  
+                  {/* Script Elements */}
+                  {elements.map((element, index) => (
+                    <div
+                      key={element.id}
+                      className="element-wrapper"
+                      data-type={element.type}
+                      style={{
+                        textAlign: formatSettings.elements[element.type].alignment,
+                        marginTop: `var(--${element.type}-spacing-before, ${formatSettings.elements[element.type].spacingBefore}rem)`,
+                        marginBottom: `var(--${element.type}-spacing-after, ${formatSettings.elements[element.type].spacingAfter}rem)`
+                      }}
+                    >
+                      {pages.includes(index) && (
+                        <div className="page-break">
+                          <div className="page-number">Page {pages.findIndex(p => p === index) + 2}</div>
+                        </div>
                       )}
-                      formatSettings={formatSettings.elements[element.type]}
-                      suggestions={suggestionsEnabled ? suggestions : undefined}
-                      showAITools={suggestionsEnabled}
-                    />
-                  </div>
-                ))}
-              </div>
+                      <MemoizedScriptElement
+                        id={element.id}
+                        type={element.type}
+                        content={element.content}
+                        isSelected={selectedElement === element.id}
+                        onChange={handleElementChange}
+                        onKeyDown={handleKeyDown}
+                        onFocus={setSelectedElement}
+                        onTypeChange={handleTypeChange}
+                        autoFocus={element.id === elements[elements.length - 1].id}
+                        onAIAssistClick={handleAIAssistClick}
+                        elements={elements}
+                        onAddComment={handleAddComment}
+                        activeCommentId={activeCommentId}
+                        comments={comments.filter(c =>
+                          elementRefs.current[element.id]?.current?.containsCommentRange?.(c.from, c.to)
+                        )}
+                        formatSettings={formatSettings.elements[element.type]}
+                        suggestions={suggestionsEnabled ? suggestions : undefined}
+                        showAITools={suggestionsEnabled}
+                        elementRef={elementRefs.current[element.id]}
+                      />
+                    </div>
+                  ))}
+                </div>
+              </ScrollPositionManager>
 
               {scriptState.showGenerateNextSceneButton && (
                 <GenerateNextSceneButton
                   onClick={handleGenerateNextScene}
                   visible={true}
+                  isLoading={isGeneratingNextScene}
                 />
               )}
             </div>

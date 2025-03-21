@@ -3,25 +3,25 @@ import { ApiBeat, GeneratedScenesResponse, Scenes } from '../types/beats';
 import { ScriptElement, ElementType, ScriptCreationMethod, ScriptMetadata } from '../types/screenplay';
 import { supabase } from '../lib/supabase';
 
-// const API_BASE_URL = 'https://script-manager-api-dev.azurewebsites.net/api/v1';
-const API_BASE_URL = 'http://localhost:8000/api/v1';
+const API_BASE_URL = 'https://script-manager-api-dev.azurewebsites.net/api/v1';
+// const API_BASE_URL = 'http://localhost:8000/api/v1';
 
 // Updated getToken function to use Supabase session
 const getToken = async () => {
   try {
     // Try to get the token from the current Supabase session
     const { data: { session } } = await supabase.auth.getSession();
-    
+
     if (session?.access_token) {
       return session.access_token;
     }
-    
+
     // Fallback to localStorage or sessionStorage if no active session
     const storedToken = localStorage.getItem('authToken') || sessionStorage.getItem('authToken');
-    
+
     // Final fallback to a default token (only for development/testing)
     const defaultToken = 'eyJhbGciOiJIUzI1NiIsImtpZCI6ImJPb1NwQjZjMEVUNmpVMmMiLCJ0eXAiOiJKV1QifQ.eyJpc3MiOiJodHRwczovL2hhd3Zna2lybG1kZ2JkbXV0dXFoLnN1cGFiYXNlLmNvL2F1dGgvdjEiLCJzdWIiOiI3MGJiZDRlMy1kNWRjLTQzMDMtYTcyYy02YjM0YjNiNGQ0MWYiLCJhdWQiOiJhdXRoZW50aWNhdGVkIiwiZXhwIjoxNzQxODEzOTA5LCJpYXQiOjE3NDE4MTAzMDksImVtYWlsIjoiaW1heWF5b2dpQGdtYWlsLmNvbSIsInBob25lIjoiIiwiYXBwX21ldGFkYXRhIjp7InByb3ZpZGVyIjoiZW1haWwiLCJwcm92aWRlcnMiOlsiZW1haWwiXX0sInVzZXJfbWV0YWRhdGEiOnsiZW1haWwiOiJpbWF5YXlvZ2lAZ21haWwuY29tIiwiZW1haWxfdmVyaWZpZWQiOnRydWUsImZ1bGxfbmFtZSI6IkltYXlhIiwicGhvbmVfdmVyaWZpZWQiOmZhbHNlLCJzdWIiOiI3MGJiZDRlMy1kNWRjLTQzMDMtYTcyYy02YjM0YjNiNGQ0MWYifSwicm9sZSI6ImF1dGhlbnRpY2F0ZWQiLCJhYWwiOiJhYWwxIiwiYW1yIjpbeyJtZXRob2QiOiJwYXNzd29yZCIsInRpbWVzdGFtcCI6MTc0MTgxMDMwOX1dLCJzZXNzaW9uX2lkIjoiYWVhNzAwZTMtYzVlMC00MTYzLWFhMjQtN2YxNTIxNTRhM2Y3IiwiaXNfYW5vbnltb3VzIjpmYWxzZX0.6vmWF-mFahaCYHbVt8dL6WMXGoWAu3XIDoc531KyLnc';
-    
+
     return storedToken || defaultToken;
   } catch (error) {
     console.error('Error getting token:', error);
@@ -32,9 +32,9 @@ const getToken = async () => {
 // Updated error handler to provide user-friendly messages
 const handleApiError = (error: any, defaultMessage: string = 'An error occurred with the API request'): never => {
   console.error('API Error:', error);
-  
+
   let errorMessage = defaultMessage;
-  
+
   if (error.response) {
     try {
       const errorData = error.response.data;
@@ -45,7 +45,7 @@ const handleApiError = (error: any, defaultMessage: string = 'An error occurred 
   } else if (error.message) {
     errorMessage = error.message;
   }
-  
+
   throw new Error(errorMessage);
 };
 
@@ -91,6 +91,7 @@ interface SceneSegment {
   is_deleted: boolean;
   deleted_at?: string;
   components: AISceneComponent[];
+  position?: number; 
 }
 
 interface SegmentListResponse {
@@ -186,6 +187,16 @@ function generateUniqueId(prefix: string = 'comp'): string {
   return `${prefix}-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
 }
 
+// Add a sorting utility for components
+function sortComponentsByPosition(components: AISceneComponent[]): AISceneComponent[] {
+  return [...components].sort((a, b) => a.position - b.position);
+}
+
+// Add a utility to check for duplicate segment IDs
+function isSegmentDuplicate(segmentId: string, existingElements: ScriptElement[]): boolean {
+  return existingElements.some(element => element.sceneSegmentId === segmentId);
+}
+
 export const api = {
   // NEW: Create a new script
   async createScript(payload: Omit<CreateScriptPayload, 'creation_method'>, creationMethod: ScriptCreationMethod = 'FROM_SCRATCH'): Promise<CreateScriptResponse> {
@@ -249,7 +260,7 @@ export const api = {
       const token = await getToken();
       const formData = new FormData();
       formData.append('file', file);
-      
+
       if (scriptId) {
         formData.append('script_id', scriptId);
       }
@@ -278,7 +289,7 @@ export const api = {
   },
 
   // Updated: Get beats with better error handling
-  async getBeats(scriptId: string ): Promise<ApiBeat[]> {
+  async getBeats(scriptId: string): Promise<ApiBeat[]> {
     try {
       const token = await getToken();
       const response = await fetch(
@@ -359,7 +370,7 @@ export const api = {
       return handleApiError(error, 'Failed to generate scenes for this beat');
     }
   },
-  
+
   // Updated: Update scene description with better error handling
   async updateSceneDescription(sceneId: string, scene_detail_for_ui: string): Promise<Scenes> {
     try {
@@ -453,7 +464,14 @@ export const api = {
   // NEW: Generate next scene
   async generateNextScene(scriptId: string, currentSceneSegmentId: string): Promise<SceneSegmentGenerationResponse> {
     try {
+      if (!scriptId) {
+        throw new Error('Script ID is required to generate the next scene');
+      }
+
       const token = await getToken();
+
+      console.log(`Generating next scene for script ${scriptId}, continuing from scene ${currentSceneSegmentId}`);
+
       const response = await fetch(
         `${API_BASE_URL}/scene-segments/ai/generate-next`,
         {
@@ -463,28 +481,59 @@ export const api = {
             'Authorization': `Bearer ${token}`,
             'Content-Type': 'application/json'
           },
-          body: JSON.stringify({ 
+          body: JSON.stringify({
             script_id: scriptId,
-            previous_scene_segment_id: currentSceneSegmentId
+            previous_scene_segment_id: currentSceneSegmentId || undefined // Only include if it exists
           })
         }
       );
 
       if (!response.ok) {
-        const errorText = await response.text();
-        throw new Error(`Failed to generate next scene: ${errorText || response.statusText}`);
+        let errorMessage: string;
+
+        try {
+          // Try to parse error response
+          const errorData = await response.json();
+          errorMessage = errorData.error || errorData.message || `Failed to generate next scene: ${response.status} ${response.statusText}`;
+        } catch (e) {
+          // If parsing fails, use status text
+          errorMessage = `Failed to generate next scene: ${response.status} ${response.statusText}`;
+        }
+
+        throw new Error(errorMessage);
       }
 
       const data: SceneSegmentGenerationResponse = await response.json();
+
+      // Validate the response data
+      if (!data.success) {
+        throw new Error(data.error || 'Failed to generate the next scene');
+      }
+
+      // Log success for debugging
+      console.log(`Successfully generated next scene: ${data.scene_segment_id}`);
+
       return data;
     } catch (error) {
-      return handleApiError(error, 'Failed to generate the next scene');
+      console.error('Error generating next scene:', error);
+
+      // Rethrow with a user-friendly message
+      if (error instanceof Error) {
+        throw error;
+      } else {
+        throw new Error('Failed to generate the next scene due to an unexpected error');
+      }
     }
   },
 
-  // Updated: Get script segments with better error handling
-  async getScriptSegments(scriptId: string, skip: number = 0, limit: number = 10): Promise<SegmentListResponse> {
+  
+  // Updated: Get script segments with pagination support and better error handling
+  async getScriptSegments(scriptId: string, skip: number = 0, limit: number = 20): Promise<SegmentListResponse> {
     try {
+      if (!scriptId) {
+        throw new Error('Script ID is required to fetch script segments');
+      }
+      
       const token = await getToken();
       console.log(`Fetching script segments for ${scriptId}, skip=${skip}, limit=${limit}`);
       
@@ -550,22 +599,33 @@ export const api = {
         data.segments = [];
       }
       
-      // Ensure total property exists
+      // Ensure total property exists - if not provided, use segment count
       if (data.total === undefined) {
-        data.total = data.segments.length;
+        // If we got fewer items than the limit, we can assume total = skip + returnedItems
+        // Otherwise set total to a value that will trigger loading more
+        if (data.segments.length < limit) {
+          data.total = skip + data.segments.length;
+        } else {
+          data.total = skip + data.segments.length + 1; // +1 to ensure we try loading more
+        }
       }
       
+      console.log(`Fetched ${data.segments.length} segments, total: ${data.total}`);
       return data;
     } catch (error) {
+      console.error('Error fetching script segments:', error);
       return handleApiError(error, 'Failed to fetch script segments');
     }
   },
 
   // Convert API scene components to script elements
   convertSceneComponentsToElements(components: AISceneComponent[]): ScriptElement[] {
-    return components.map((component, index) => {
+    const sortedComponents = sortComponentsByPosition(components);
+    return sortedComponents.map((component, index) => {
+
       let elementType: ElementType = mapComponentTypeToElementType(component.component_type);
       let content = component.content;
+  
 
       // Skip standalone CHARACTER components but keep character data for DIALOGUE
       if (component.component_type === 'CHARACTER') {
@@ -598,12 +658,12 @@ export const api = {
           }
         ] as ScriptElement[];
       }
-      
+
       // Case 2: DIALOGUE with only parenthetical
       else if (component.component_type === 'DIALOGUE' && component.parenthetical) {
         // Create a separate parenthetical element with a derived ID
         const parentheticalContent = component.parenthetical.trim();
-        
+
         return [
           {
             id: `${componentId}-parenthetical-${index}`,
@@ -646,41 +706,72 @@ export const api = {
   },
 
   // Convert all scene segments to script elements
-  convertSegmentsToScriptElements(segments: SceneSegment[]): ScriptElement[] {
+  convertSegmentsToScriptElements(segments: SceneSegment[], existingElements: ScriptElement[] = []): ScriptElement[] {
     if (!segments || !Array.isArray(segments) || segments.length === 0) {
       console.log('No segments to convert to script elements');
       return [];
     }
+  
+    // Sort segments by position (as float) if available, otherwise by creation date
+    const sortedSegments = [...segments].sort((a, b) => {
+      // First try to sort by position if available (handling as float)
+      if (a.position !== undefined && b.position !== undefined) 
+        return a.position - b.position;
+    
+      
+      // Fallback to created_at date if position is not available
+      return new Date(a.created_at).getTime() - new Date(b.created_at).getTime();
+    });
+    
+    // Create a set of existing segment IDs for faster lookup
+    const existingSegmentIds = new Set(
+      existingElements.map(el => el.sceneSegmentId).filter(Boolean)
+    );
     
     const allElements: ScriptElement[] = [];
-    
-    segments.forEach(segment => {
-      // Skip segments with no components or invalid structure
+  
+    sortedSegments.forEach(segment => {
+      // Skip segments with no components, invalid structure, or already loaded
       if (!segment || !segment.components || !Array.isArray(segment.components)) {
         console.warn('Skipping invalid segment:', segment);
         return;
       }
       
+      // Skip duplicates
+      if (existingSegmentIds.has(segment.id)) {
+        console.log(`Skipping duplicate segment: ${segment.id}`);
+        return;
+      }
+  
       try {
-        const segmentElements = this.convertSceneComponentsToElements(segment.components);
+        // Sort components by position (as float) before converting
+        const sortedComponents = [...segment.components].sort((a, b) => {
+          // Handle possible undefined or null positions by defaulting to 0
+          const posA = typeof a.position === 'number' ? a.position : 0;
+          const posB = typeof b.position === 'number' ? b.position : 0;
+          return posA - posB; // Correctly compares float values
+        });
         
-        // Add scene segment ID to each element for tracking
+        const segmentElements = this.convertSceneComponentsToElements(sortedComponents);
+  
+        // Add scene segment ID and position to each element for tracking
         const elementsWithSegmentId = segmentElements.map(element => ({
           ...element,
-          sceneSegmentId: segment.id
+          sceneSegmentId: segment.id,
+          segmentPosition: segment.position ?? 0 // Use nullish coalescing for safer default
         }));
-        
+  
         allElements.push(...elementsWithSegmentId);
       } catch (error) {
         console.error('Error converting segment components to elements:', error, segment);
         // Continue with other segments
       }
     });
-    
-    if (allElements.length === 0) {
-      console.log('No elements were created from the segments');
+  
+    if (allElements.length === 0 && segments.length > 0) {
+      console.log('No elements were created from the segments, check component conversion logic');
     }
-    
+  
     return allElements;
   },
 
@@ -694,7 +785,7 @@ export const api = {
     try {
       // Get script metadata
       const metadata = await this.getScriptMetadata(scriptId);
-      
+
       // Get beats
       let hasBeats = false;
       try {
@@ -703,15 +794,15 @@ export const api = {
       } catch (error) {
         console.warn('Error fetching beats, assuming no beats:', error);
       }
-      
+
       // Get scene segments
       let scenesCount = 0;
       let currentSceneSegmentId = metadata.current_scene_segment_id;
-      
+
       try {
         const segments = await this.getScriptSegments(scriptId);
         scenesCount = segments.total || 0;
-        
+
         // If metadata doesn't have a current segment ID but we have segments, use the last one
         if (!currentSceneSegmentId && segments.segments.length > 0) {
           currentSceneSegmentId = segments.segments[segments.segments.length - 1].id;
@@ -719,7 +810,7 @@ export const api = {
       } catch (error) {
         console.warn('Error fetching scene segments:', error);
       }
-      
+
       return {
         creationMethod: metadata.creation_method,
         hasBeats,

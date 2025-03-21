@@ -27,6 +27,7 @@ export interface ScriptElement {
   content: string;
   comments?: Comment[];
   sceneSegmentId?: string; // Added to track which scene segment this element belongs to
+  position?: number;
 }
 
 export interface ElementFormat {

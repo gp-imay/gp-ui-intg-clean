@@ -1,14 +1,16 @@
 import React from 'react';
-import { Sparkles, Wand2 } from 'lucide-react';
+import { Sparkles, Wand2, RefreshCw } from 'lucide-react';
 
 interface GenerateNextSceneButtonProps {
   onClick: () => void;
   visible: boolean;
+  isLoading?: boolean;
 }
 
 export const GenerateNextSceneButton: React.FC<GenerateNextSceneButtonProps> = ({
   onClick,
-  visible
+  visible,
+  isLoading = false
 }) => {
   if (!visible) return null;
   
@@ -16,14 +18,27 @@ export const GenerateNextSceneButton: React.FC<GenerateNextSceneButtonProps> = (
     <div className="flex justify-center my-8">
       <button
         onClick={onClick}
-        className="generate-scene-button flex items-center gap-2 px-4 py-3 bg-gradient-to-r from-blue-500 to-purple-500 text-white rounded-lg shadow-md hover:shadow-lg transition-all duration-300 group"
+        disabled={isLoading}
+        className={`generate-scene-button flex items-center gap-2 px-4 py-3 ${
+          isLoading 
+            ? 'bg-gray-400' 
+            : 'bg-gradient-to-r from-blue-500 to-purple-500 hover:shadow-lg'
+        } text-white rounded-lg shadow-md transition-all duration-300 group`}
       >
         <div className="relative">
-          <div className="absolute inset-0 bg-white rounded-full opacity-20 group-hover:scale-150 transition-transform duration-700"></div>
-          <Wand2 className="w-5 h-5 relative z-10" />
+          <div className={`absolute inset-0 bg-white rounded-full opacity-20 ${
+            isLoading ? '' : 'group-hover:scale-150 transition-transform duration-700'
+          }`}></div>
+          {isLoading ? (
+            <RefreshCw className="w-5 h-5 relative z-10 animate-spin" />
+          ) : (
+            <Wand2 className="w-5 h-5 relative z-10" />
+          )}
         </div>
-        <span className="font-medium">Generate Next Scene</span>
-        <Sparkles className="w-4 h-4 text-yellow-200" />
+        <span className="font-medium">
+          {isLoading ? 'Generating...' : 'Generate Next Scene'}
+        </span>
+        {!isLoading && <Sparkles className="w-4 h-4 text-yellow-200" />}
       </button>
     </div>
   );
