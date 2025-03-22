@@ -1,7 +1,7 @@
 import React from 'react';
 import {
   Home, Edit2, Download, Settings, User, ChevronDown, LogOut,
-  FileText, AlertCircle, Sparkles, ToggleLeft, ToggleRight
+  FileText, AlertCircle, Sparkles, ToggleLeft, ToggleRight, RefreshCw, Save
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { ViewMode, UserProfile, ScriptState } from '../types/screenplay';
@@ -24,6 +24,9 @@ interface HeaderProps {
   onGenerateScript?: () => void;
   beatsDisabled?: boolean;
   beatsAvailable?: boolean;
+  hasUnsavedChanges: boolean;
+  onSave: () => void;
+  isSaving: boolean;
 }
 
 export function Header({
@@ -41,9 +44,12 @@ export function Header({
   // showGenerateScript,
   onGenerateScript,
   scriptState,
-  beatsAvailable = false // Add this prop
+  beatsAvailable = false,
+  hasUnsavedChanges,
+  onSave,
+  isSaving
 }: HeaderProps) {
-  const navigate = useNavigate(); 
+  const navigate = useNavigate();
   const [showProfileMenu, setShowProfileMenu] = React.useState(false);
   const [showTooltip, setShowTooltip] = React.useState(false);
   const activeUser = userProfiles.find(profile => profile.id === activeProfile);
@@ -58,8 +64,8 @@ export function Header({
       <div className="max-w-full px-4 py-4 flex items-center">
         {/* Left section - Title and home button */}
         <div className="w-[300px] flex-shrink-0 flex items-center space-x-4">
-          <Home className="h-5 w-5 text-gray-600 hover:text-blue-600 cursor-pointer transition-colors" 
-          onClick={handleNavigateToDashboard}
+          <Home className="h-5 w-5 text-gray-600 hover:text-blue-600 cursor-pointer transition-colors"
+            onClick={handleNavigateToDashboard}
           />
           <div className="flex items-center gap-2 min-w-0">
             <button
@@ -75,6 +81,30 @@ export function Header({
             >
               <Edit2 className="h-4 w-4" />
             </button>
+            <button
+              onClick={onSave}
+              disabled={isSaving || !onSave}
+              className={`inline-flex items-center p-2 rounded-full transition-colors ${
+                !onSave ? 'hidden' :
+                isSaving ? 'text-gray-400 cursor-not-allowed' :
+                hasUnsavedChanges ? 'text-blue-500 hover:bg-blue-50 animate-pulse' : 
+                'text-green-500 hover:bg-green-50'            
+                }`}
+              title={
+                isSaving
+                  ? "Saving..."
+                  : hasUnsavedChanges
+                    ? "Unsaved changes"
+                    : "All changes saved"
+              }
+            >
+              {isSaving ? (
+                <RefreshCw className="h-5 w-5 animate-spin" />
+              ) : (
+                <Save className="h-5 w-5"  />
+              )}
+            </button>
+
           </div>
         </div>
 
@@ -84,8 +114,8 @@ export function Header({
             <button
               onClick={() => setViewMode('beats')}
               className={`px-4 py-1.5 rounded-md text-sm font-medium transition-all duration-200 ${viewMode === 'beats'
-                  ? 'bg-white text-gray-900 shadow-sm'
-                  : 'text-gray-600 hover:text-gray-900'
+                ? 'bg-white text-gray-900 shadow-sm'
+                : 'text-gray-600 hover:text-gray-900'
                 }`}
             >
               Beats
@@ -93,8 +123,8 @@ export function Header({
             <button
               onClick={() => setViewMode('script')}
               className={`px-4 py-1.5 rounded-md text-sm font-medium transition-all duration-200 ${viewMode === 'script'
-                  ? 'bg-white text-gray-900 shadow-sm'
-                  : 'text-gray-600 hover:text-gray-900'
+                ? 'bg-white text-gray-900 shadow-sm'
+                : 'text-gray-600 hover:text-gray-900'
                 }`}
             >
               Script
@@ -102,8 +132,8 @@ export function Header({
             <button
               onClick={() => setViewMode('boards')}
               className={`px-4 py-1.5 rounded-md text-sm font-medium transition-all duration-200 ${viewMode === 'boards'
-                  ? 'bg-white text-gray-900 shadow-sm'
-                  : 'text-gray-600 hover:text-gray-900'
+                ? 'bg-white text-gray-900 shadow-sm'
+                : 'text-gray-600 hover:text-gray-900'
                 }`}
             >
               Boards

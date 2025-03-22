@@ -58,6 +58,12 @@ interface ComponentTypeAI {
   TRANSITION: "TRANSITION";
 }
 
+interface SaveChangesRequest {
+  changedSegments: Record<string, any[]>; // segment ID -> array of components
+  deletedElements: string[]; // array of deleted scene component ids
+  deletedSegments: string[]; // array of deleted scene segment ids
+}
+
 interface AISceneComponent {
   component_type: keyof ComponentTypeAI;
   position: number;
@@ -65,6 +71,7 @@ interface AISceneComponent {
   character_name: string | null;
   parenthetical: string | null;
   component_id: string; // Add component_id property
+  id: string;
 }
 
 interface GeneratedSceneSegment {
@@ -618,6 +625,34 @@ export const api = {
     }
   },
 
+  async saveScriptChanges(scriptId: string, changes: SaveChangesRequest): Promise<boolean> {
+    try {
+      console.log("logging changes : ",changes)
+      const token = await getToken();
+      const response = await fetch(
+        `${API_BASE_URL}/scene-segments/${scriptId}/changes`,
+        {
+          method: 'PUT',
+          headers: {
+            'accept': 'application/json',
+            'Authorization': `Bearer ${token}`,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify(changes)
+        }
+      );
+  
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => null);
+        throw new Error(errorData?.message || `Failed to save: ${response.status}`);
+      }
+  
+      return true;
+    } catch (error) {
+      return handleApiError(error, 'Failed to save script changes');
+    }
+  },
+
   // Convert API scene components to script elements
   convertSceneComponentsToElements(components: AISceneComponent[]): ScriptElement[] {
     const sortedComponents = sortComponentsByPosition(components);
@@ -625,34 +660,36 @@ export const api = {
 
       let elementType: ElementType = mapComponentTypeToElementType(component.component_type);
       let content = component.content;
-  
+      const frontendId = `comp-${index}-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+
 
       // Skip standalone CHARACTER components but keep character data for DIALOGUE
       if (component.component_type === 'CHARACTER') {
         return [];
       }
-
       // Ensure we have a reliable component ID
-      const componentId = component.component_id || generateUniqueId(`comp-${index}`);
-
+      const componentId = component.id ;
       // Case 1: DIALOGUE with both character_name and parenthetical
       if (component.component_type === 'DIALOGUE' && component.character_name && component.parenthetical) {
         return [
           // Character element (needed for formatting)
           {
-            id: `${componentId}-character`,
+            id: `frontendId--${Math.random().toString(36).substr(2, 9)}`,
+            componentId: component.id,
             type: 'character' as ElementType,
             content: component.character_name || ''
           },
           // Parenthetical element
           {
-            id: `${componentId}-parenthetical-${index}`,
+            id: `frontendId--${Math.random().toString(36).substr(2, 9)}`,
             type: 'parenthetical' as ElementType,
+            componentId: component.id,
             content: component.parenthetical.trim()
           },
           // Dialogue element
           {
-            id: componentId,
+            id: `frontendId--${Math.random().toString(36).substr(2, 9)}`,
+            componentId: component.id,
             type: elementType,
             content
           }
@@ -666,12 +703,14 @@ export const api = {
 
         return [
           {
-            id: `${componentId}-parenthetical-${index}`,
+            id: `frontendId--${Math.random().toString(36).substr(2, 9)}`,
             type: 'parenthetical' as ElementType,
+            componentId: component.id,
             content: parentheticalContent
           },
           {
-            id: componentId,
+            id: `frontendId--${Math.random().toString(36).substr(2, 9)}`,
+            componentId: component.id,
             type: elementType,
             content
           }
@@ -683,13 +722,15 @@ export const api = {
         return [
           // Character element (needed for formatting)
           {
-            id: `${componentId}-character`,
+            id: `frontendId--${Math.random().toString(36).substr(2, 9)}`,
             type: 'character' as ElementType,
+            componentId: component.id,
             content: component.character_name || ''
           },
           // Dialogue element
           {
-            id: componentId,
+            id: `frontendId--${Math.random().toString(36).substr(2, 9)}`,
+            componentId: component.id,
             type: elementType,
             content
           }
@@ -698,8 +739,9 @@ export const api = {
 
       // Case 4: Regular element (non-DIALOGUE or DIALOGUE without extras)
       return {
-        id: componentId,
+        id:  `frontendId--${Math.random().toString(36).substr(2, 9)}`,
         type: elementType,
+        componentId: component.id,
         content
       } as ScriptElement;
     }).flat(); // Keep character elements this time

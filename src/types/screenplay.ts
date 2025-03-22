@@ -22,12 +22,13 @@ export interface Comment {
 }
 
 export interface ScriptElement {
-  id: string;
+  id: string;            // Frontend ID for React keys
   type: ElementType;
   content: string;
   comments?: Comment[];
   sceneSegmentId?: string; // Added to track which scene segment this element belongs to
   position?: number;
+  componentId?: string; // Original backend component ID
 }
 
 export interface ElementFormat {

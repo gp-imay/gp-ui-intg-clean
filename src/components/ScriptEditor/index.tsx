@@ -46,7 +46,13 @@ export function ScriptEditor({ scriptId, initialViewMode = 'script', scriptState
   const [elements, setElements] = useState<ScriptElementType[]>([
     { id: '1', type: 'scene-heading', content: '' }
   ]);
+  const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
   const [selectedElement, setSelectedElement] = useState('1');
+  const modifiedElementsRef = useRef(new Set<string>());
+  const deletedElementsRef = useRef(new Set<string>());
+  const deletedSegmentsRef = useRef(new Set<string>());
+
   // Sidebar state preservation when switching views
   const [isLeftSidebarOpen, setIsLeftSidebarOpen] = useState(true);
   const [isRightSidebarOpen, setIsRightSidebarOpen] = useState(false);
@@ -96,7 +102,7 @@ export function ScriptEditor({ scriptId, initialViewMode = 'script', scriptState
 
   const previousElementsRef = useRef<ScriptElementType[]>([]);
   const loadedSegmentIdsRef = useRef<Set<string>>(new Set());
-  
+
 
 
   // Handle view mode changes
@@ -105,7 +111,7 @@ export function ScriptEditor({ scriptId, initialViewMode = 'script', scriptState
       // Show informative alert but still allow the tab switch
       showAlert('info', 'AI beats are not available for manually created scripts. You can still switch to the beats view to see this message.');
     }
-    
+
     if (mode === 'beats' && viewMode !== 'beats') {
       // Store current sidebar states before switching to beats mode
       setPreviousSidebarStates({
@@ -151,7 +157,7 @@ export function ScriptEditor({ scriptId, initialViewMode = 'script', scriptState
         // Get script metadata first to set title and other properties
         const metadata = await api.getScriptMetadata(scriptId);
         setTitle(metadata.title || `Script ${scriptId.slice(0, 8)}`);
-        
+
         // Update first scene completion status based on metadata
         if (scriptState.context.scenesCount > 0) {
           setHasCompletedFirstScene(true);
@@ -160,9 +166,9 @@ export function ScriptEditor({ scriptId, initialViewMode = 'script', scriptState
           // If it's an AI script with beats but no scenes, we should be ready to generate the first scene
           console.log('AI script with beats but no scenes - ready for first scene generation');
         }
-        
+
         // Note: We don't load script segments here anymore - that's handled by ScriptContentLoader
-        
+
       } catch (error) {
         console.error('Failed to fetch script metadata:', error);
         setLoadError(error instanceof Error ? error.message : 'Failed to load script');
@@ -196,10 +202,10 @@ export function ScriptEditor({ scriptId, initialViewMode = 'script', scriptState
     } else {
       // Add new elements and sort by position
       const combinedElements = [...elements, ...generatedElements];
-      
+
       // Group by segment and sort
       const segmentGroups = new Map<string, ScriptElementType[]>();
-      
+
       combinedElements.forEach(element => {
         const segId = element.sceneSegmentId || 'unsegmented';
         if (!segmentGroups.has(segId)) {
@@ -207,7 +213,7 @@ export function ScriptEditor({ scriptId, initialViewMode = 'script', scriptState
         }
         segmentGroups.get(segId)?.push(element);
       });
-      
+
       // Sort segments by position
       const sortedSegmentIds = Array.from(segmentGroups.keys())
         .filter(id => id !== 'unsegmented')
@@ -216,34 +222,34 @@ export function ScriptEditor({ scriptId, initialViewMode = 'script', scriptState
           const bPosition = combinedElements.find(el => el.sceneSegmentId === b)?.position || 0;
           return aPosition - bPosition;
         });
-      
+
       // Add unsegmented elements at the end if they exist
       if (segmentGroups.has('unsegmented')) {
         sortedSegmentIds.push('unsegmented');
       }
-      
+
       // Flatten the sorted groups
       const sortedElements: ScriptElementType[] = [];
       sortedSegmentIds.forEach(segmentId => {
         const segmentElements = segmentGroups.get(segmentId) || [];
         sortedElements.push(...segmentElements);
       });
-      
+
       setElements(sortedElements);
     }
-    
+
     // Select the first element of the generated script
     if (generatedElements.length > 0) {
       setSelectedElement(generatedElements[0].id);
     }
-    
+
     // Update application state
     setHasCompletedFirstScene(true);
     setActiveTab('scenes');
-    
+
     // Save current elements for comparison in future updates
     previousElementsRef.current = [...elements];
-    
+
     // Switch to script view
     handleViewModeChange('script');
   };
@@ -254,32 +260,32 @@ export function ScriptEditor({ scriptId, initialViewMode = 'script', scriptState
       showAlert('error', 'Script ID is missing');
       return;
     }
-    
+
     try {
       setIsGeneratingNextScene(true);
-      
+
       // Call the API to generate the next scene
       const result = await api.generateNextScene(scriptId, currentSceneSegmentId || '');
-      
+
       if (result.success) {
         // Update the scene segment ID
         setCurrentSceneSegmentId(result.scene_segment_id || null);
-        
+
         if (result.generated_segment?.components) {
           // Convert the components to script elements
           const newElements = api.convertSceneComponentsToElements(result.generated_segment.components);
-          
+
           // Append the new elements to the existing script
           setElements(prev => [...prev, ...newElements]);
-          
+
           // Select the first element of the new scene
           if (newElements.length > 0) {
             setSelectedElement(newElements[0].id);
-            
+
             // Let the ScrollPositionManager handle scrolling to the selected element
             // This ensures scroll position is maintained correctly
           }
-          
+
           showAlert('success', 'Next scene generated successfully');
         } else {
           throw new Error('No script components were generated');
@@ -301,33 +307,33 @@ export function ScriptEditor({ scriptId, initialViewMode = 'script', scriptState
       showAlert('error', 'Script ID is missing');
       return;
     }
-    
+
     try {
       setIsGeneratingFirstScene(true);
-      
+
       // Call the API directly to generate the script
       const result = await api.generateScript(scriptId);
-      
+
       if (result.success) {
         // Set the scene segment ID
         setCurrentSceneSegmentId(result.scene_segment_id || null);
-        
+
         if (result.generated_segment?.components) {
           // Convert the components to script elements
           const scriptElements = api.convertSceneComponentsToElements(result.generated_segment.components);
-          
+
           // Update elements
           setElements(scriptElements);
-          
+
           // Select the first element
           if (scriptElements.length > 0) {
             setSelectedElement(scriptElements[0].id);
           }
-          
+
           // Update state
           setHasCompletedFirstScene(true);
           setActiveTab('scenes');
-          
+
           // Switch to script view
           handleViewModeChange('script');
           showAlert('success', 'Script generated successfully');
@@ -387,6 +393,27 @@ export function ScriptEditor({ scriptId, initialViewMode = 'script', scriptState
       if (currentIndex > 0 && currentElement.content.trim() === '') {
         e.preventDefault();
         const previousElement = elements[currentIndex - 1];
+        
+        // Add tracking for deletion
+        deletedElementsRef.current.add(id);
+        
+        // If deleting a scene heading, track segment deletion
+        if (currentElement.type === 'scene-heading' && currentElement.sceneSegmentId) {
+          const segmentId = currentElement.sceneSegmentId;
+          deletedSegmentsRef.current.add(segmentId);
+          
+          // Mark all elements in this segment for deletion tracking
+          elements.forEach(el => {
+            if (el.sceneSegmentId === segmentId) {
+              deletedElementsRef.current.add(el.id);
+            }
+          });
+        }
+        
+        // Mark as having unsaved changes
+        setHasUnsavedChanges(true);
+        
+        // Existing deletion logic
         const updatedElements = elements.filter(el => el.id !== id);
         setElements(updatedElements);
         setSelectedElement(previousElement.id);
@@ -433,13 +460,118 @@ export function ScriptEditor({ scriptId, initialViewMode = 'script', scriptState
     setElements(prev => prev.map(el =>
       el.id === id ? { ...el, content } : el
     ));
+    modifiedElementsRef.current.add(id);
+    setHasUnsavedChanges(true);
   };
 
-  const handleTypeChange = (id: string, type: ElementType) => {
-    setElements(prev => prev.map(el =>
-      el.id === id ? { ...el, type } : el
-    ));
+  const mapElementTypeToComponentType = (elementType: ElementType): string => {
+    switch (elementType) {
+      case 'scene-heading': return 'HEADING';
+      case 'action': return 'ACTION';
+      case 'character': return 'CHARACTER';
+      case 'dialogue': return 'DIALOGUE';
+      case 'parenthetical': return 'PARENTHETICAL';
+      case 'transition': return 'TRANSITION';
+      default: return 'ACTION';
+    }
   };
+  const stripHtml = (html: string): string => {
+    // Remove HTML tags
+    let text = html.replace(/<[^>]+>/g, '');
+    // Replace HTML entities
+    text = text.replace(/&nbsp;/g, ' ')
+               .replace(/&amp;/g, '&')
+               .replace(/&lt;/g, '<')
+               .replace(/&gt;/g, '>')
+               .replace(/&quot;/g, '"');
+    return text;
+  };
+  
+  
+  const handleSave = async () => {
+    if (!scriptId) {
+      showAlert('error', 'Script ID is missing');
+      return;
+    }
+  
+    try {
+        setIsSaving(true);
+        
+      // Group by segment ID (this part is correct)
+      const changedSegments: Record<string, any[]> = {};
+      
+      // Get modified elements
+      const changedElements = elements.filter(el => 
+        modifiedElementsRef.current.has(el.id)
+      );
+      
+      // For each changed element, we need to map back to the original component ID
+      changedElements.forEach(el => {
+        if (!el.sceneSegmentId) return;
+        
+        if (!changedSegments[el.sceneSegmentId]) {
+          changedSegments[el.sceneSegmentId] = [];
+        }
+        
+        // Find original component ID from metadata or use a mapping
+        // This is where the problem is - we need to maintain component_id
+        const originalComponentId = el.componentId;
+
+            
+        // Convert to backend component format
+        changedSegments[el.sceneSegmentId].push({
+          id: originalComponentId, // Use the original ID from backend
+          component_type: mapElementTypeToComponentType(el.type),
+          position: el.position || 0,
+          content: stripHtml(el.content), // Remove HTML tags (see next fix)
+          character_name: el.type === 'character' ? stripHtml(el.content) : null,
+          parenthetical: el.type === 'parenthetical' ? stripHtml(el.content) : null,
+        });
+      });
+        
+      // Handle deleted elements
+      const deletedIds = Array.from(deletedElementsRef.current);
+      const deletedSegmentIds = Array.from(deletedSegmentsRef.current);
+
+      // Call API to save changes
+      const success = await api.saveScriptChanges(scriptId, {
+        changedSegments,
+        deletedElements: deletedIds,
+        deletedSegments: deletedSegmentIds 
+  
+      });
+      
+      if (success) {
+        // Reset tracking
+        modifiedElementsRef.current.clear();
+        deletedElementsRef.current.clear();
+        deletedSegmentsRef.current.clear();  
+        setHasUnsavedChanges(false);
+        showAlert('success', 'Script saved successfully');
+      }
+    } catch (error) {
+      console.error('Error saving script:', error);
+      showAlert('error', error instanceof Error ? error.message : 'Failed to save script');
+    } finally {
+      setIsSaving(false);
+    }
+  };
+  
+
+  const handleTypeChange = (id: string, type: ElementType) => {
+    setElements(prev => {
+      // Track special case: scene heading changes
+      const element = prev.find(el => el.id === id);
+      if (element && (element.type === 'scene-heading' || type === 'scene-heading')) {
+        // Scene segment structure might need updates
+        console.log(`Scene heading changed: ${element.type} -> ${type}`);
+      }
+      return prev.map(el => el.id === id ? { ...el, type } : el);
+    });
+    modifiedElementsRef.current.add(id);
+    setHasUnsavedChanges(true);
+  };
+
 
   const handleDeleteComment = (commentId: string) => {
     setComments(prev => prev.filter(comment => comment.id !== commentId));
@@ -571,6 +703,22 @@ Copyright: ${titlePage.copyright}
     root.style.setProperty('--page-margin-left', `${formatSettings.pageLayout.marginLeft}in`);
   }, [formatSettings]);
 
+  // Add handler for keyboard events to catch delete operations
+  useEffect(() => {
+    const handleKeyboardDelete = (event: KeyboardEvent) => {
+      if ((event.key === 'Delete' || event.key === 'Backspace') && selectedElement) {
+        // Only if element is actually being deleted
+        if (elements.find(el => el.id === selectedElement)?.content === '') {
+          deletedElementsRef.current.add(selectedElement);
+          setHasUnsavedChanges(true);
+        }
+      }
+    };
+
+    document.addEventListener('keydown', handleKeyboardDelete);
+    return () => document.removeEventListener('keydown', handleKeyboardDelete);
+  }, [selectedElement, elements]);
+
   useEffect(() => {
     const calculatePages = () => {
       if (!contentRef.current) return;
@@ -668,9 +816,9 @@ Copyright: ${titlePage.copyright}
 
   // Handle empty script state - when elements are empty but script should have content
   const isScriptEmpty = elements.length === 1 && elements[0].content === '';
-  const showEmptyStateMessage = isScriptEmpty && 
-                               scriptState.context.creationMethod === 'WITH_AI' && 
-                               scriptState.context.hasBeats;
+  const showEmptyStateMessage = isScriptEmpty &&
+    scriptState.context.creationMethod === 'WITH_AI' &&
+    scriptState.context.hasBeats;
 
   return (
     <div className="h-screen bg-gray-100 flex flex-col overflow-hidden">
@@ -689,6 +837,9 @@ Copyright: ${titlePage.copyright}
         onGenerateScript={handleGenerateScript}
         scriptState={scriptState.state}
         beatsAvailable={beatsAvailable}
+        hasUnsavedChanges={hasUnsavedChanges}
+        onSave={handleSave}
+        isSaving={isSaving}
       />
 
       <div className="flex-1 flex overflow-hidden">
@@ -765,7 +916,7 @@ Copyright: ${titlePage.copyright}
                     isGeneratingFirstScene={isGeneratingFirstScene}
                     onGenerateScript={handleGenerateScript}
                   />
-                  
+
                   {/* Script Elements */}
                   {elements.map((element, index) => (
                     <div
