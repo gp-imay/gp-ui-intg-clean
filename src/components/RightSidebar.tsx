@@ -1,18 +1,27 @@
 import React, { useState } from 'react';
 import { ChevronRight, Sparkles, Maximize2, Minimize2, Wand2, MessageSquare, Trash2, Zap } from 'lucide-react';
 
+import { ExpansionCard } from './ScriptEditor/ExpansionCard';
+import { ExpandComponentResponse } from '../services/api'; // Adjust import path
+
+
 interface RightSidebarProps {
   isOpen: boolean;
   setIsOpen: (open: boolean) => void;
   onApplySuggestion?: (content: string) => void;
   selectedElementId?: string;
+  expansionResults?: ExpandComponentResponse | null; // Add this prop
+  isLoadingExpansion?: boolean; // Add this prop
 }
 
-export const RightSidebar: React.FC<RightSidebarProps> = ({ 
-  isOpen, 
+
+export const RightSidebar: React.FC<RightSidebarProps> = ({
+  isOpen,
   setIsOpen,
   onApplySuggestion,
-  selectedElementId
+  selectedElementId,
+  expansionResults,
+  isLoadingExpansion = false
 }) => {
   const [suggestions, setSuggestions] = useState([
     {
@@ -43,6 +52,35 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({
     }
   };
 
+  const renderExpansionResults = () => {
+    if (!expansionResults) return null;
+
+    const expansionTypes = [
+      { key: 'concise' as const, title: 'Concise Version' },
+      { key: 'dramatic' as const, title: 'Dramatic Version' },
+      { key: 'minimal' as const, title: 'Minimal Version' },
+      { key: 'poetic' as const, title: 'Poetic Version' },
+      { key: 'humorous' as const, title: 'Humorous Version' }
+    ];
+
+    return (
+      <div className="p-4 space-y-2">
+        <h3 className="text-sm font-medium text-gray-700 mb-3">Expansion Options</h3>
+        <div className="max-h-[calc(100vh-200px)] overflow-y-auto pr-1">
+          {expansionTypes.map(({ key, title }) => (
+            <ExpansionCard
+              key={key}
+              title={title}
+              expansion={expansionResults[key]}
+              onApply={(text) => onApplySuggestion?.(text)}
+            />
+          ))}
+        </div>
+      </div>
+    );
+  };
+
+
   const getIconForType = (type: string) => {
     switch (type) {
       case 'improve': return <Wand2 className="h-4 w-4 text-blue-600" />;
@@ -54,9 +92,9 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({
   };
 
   return (
-    <div className={`bg-white shadow-lg transition-all duration-300 overflow-hidden relative ${
-      isOpen ? 'w-80' : 'w-0'
-    }`}>
+    <div className={`bg-white shadow-lg transition-all duration-300 overflow-hidden relative ${isOpen ? 'w-80' : 'w-0'
+      }`}>
+
       <div className="h-full flex flex-col">
         <div className="p-4 border-b border-gray-200 flex-none flex justify-between items-center">
           <div className="flex items-center">
@@ -74,11 +112,19 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({
           </button>
         </div>
         <div className="flex-1 overflow-y-auto">
+        {isLoadingExpansion ? (
+            <div className="flex items-center justify-center h-40">
+              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500"></div>
+            </div>
+          ) : expansionResults ? (
+            renderExpansionResults()
+          ) : (
+
           <div className="p-4 space-y-4">
             <div className="p-3 bg-gray-50 rounded-lg">
               <p className="text-sm text-gray-600">Select text and use the AI Assist button in the toolbar to get suggestions and improvements.</p>
             </div>
-            
+
             <div className="border-t border-gray-200 pt-4">
               <h3 className="text-sm font-medium text-gray-700 mb-3">AI Actions</h3>
               <div className="grid grid-cols-2 gap-2">
@@ -100,12 +146,12 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({
                 </button>
               </div>
             </div>
-            
+
             <div className="border-t border-gray-200 pt-4">
               <div className="flex justify-between items-center mb-3">
                 <h3 className="text-sm font-medium text-gray-700">Recent Suggestions</h3>
                 {suggestions.length > 0 && (
-                  <button 
+                  <button
                     className="text-xs text-gray-500 hover:text-gray-700 flex items-center"
                     onClick={clearSuggestions}
                   >
@@ -123,7 +169,7 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({
               ) : (
                 <div className="space-y-3">
                   {suggestions.map(suggestion => (
-                    <div 
+                    <div
                       key={suggestion.id}
                       className="p-3 bg-white border border-gray-200 rounded-lg hover:border-blue-300 transition-colors cursor-pointer group"
                     >
@@ -136,7 +182,7 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({
                       </div>
                       <p className="text-xs text-gray-600 line-clamp-2">{suggestion.description}</p>
                       <div className="mt-2 pt-2 border-t border-gray-100 flex justify-end opacity-0 group-hover:opacity-100 transition-opacity">
-                        <button 
+                        <button
                           className="text-xs text-blue-600 hover:text-blue-800"
                           onClick={() => handleApplySuggestion(suggestion.content)}
                           disabled={!selectedElementId}
@@ -157,8 +203,10 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({
               )}
             </div>
           </div>
+          )}
+          </div>
         </div>
       </div>
-    </div>
-  );
-};
+    );
+  };
+  

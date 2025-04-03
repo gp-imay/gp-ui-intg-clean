@@ -177,6 +177,24 @@ export interface ScriptMetadataResponse {
   total_beats?: number;
 }
 
+
+export interface ScriptExpansion {
+  explanation: string;
+  expanded_text: string;
+}
+
+export interface ExpandComponentResponse {
+  component_id: string;
+  original_text: string;
+  concise: ScriptExpansion;
+  dramatic: ScriptExpansion;
+  minimal: ScriptExpansion;
+  poetic: ScriptExpansion;
+  humorous: ScriptExpansion;
+}
+
+export type ExpansionType = 'concise' | 'dramatic' | 'minimal' | 'poetic' | 'humorous';
+
 // Map AI component types to editor element types
 function mapComponentTypeToElementType(componentType: keyof ComponentTypeAI): ElementType {
   const typeMap: Record<keyof ComponentTypeAI, ElementType> = {
@@ -652,6 +670,32 @@ export const api = {
       return handleApiError(error, 'Failed to save script changes');
     }
   },
+  async  expandComponent(componentId: string): Promise<ExpandComponentResponse> {
+    try {
+      const token = await getToken();
+      
+      const response = await fetch(
+        `${API_BASE_URL}/scene-segments/components/${componentId}/expand`,
+        {
+          method: 'POST',
+          headers: {
+            'accept': 'application/json',
+            'Authorization': `Bearer ${token}`
+          }
+        }
+      );
+  
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.message || errorData.error || `Error ${response.status}: Failed to expand text`);
+      }
+  
+      return await response.json();
+    } catch (error) {
+      console.error('Failed to expand component:', error);
+      throw error;
+    }
+  },
 
   // Convert API scene components to script elements
   convertSceneComponentsToElements(components: AISceneComponent[]): ScriptElement[] {
@@ -668,14 +712,15 @@ export const api = {
         return [];
       }
       // Ensure we have a reliable component ID
-      const componentId = component.id ;
+      const componentId = component.id;
+
       // Case 1: DIALOGUE with both character_name and parenthetical
       if (component.component_type === 'DIALOGUE' && component.character_name && component.parenthetical) {
         return [
           // Character element (needed for formatting)
           {
             id: `frontendId--${Math.random().toString(36).substr(2, 9)}`,
-            componentId: component.id,
+            componentId: componentId,
             type: 'character' as ElementType,
             content: component.character_name || ''
           },
@@ -683,13 +728,13 @@ export const api = {
           {
             id: `frontendId--${Math.random().toString(36).substr(2, 9)}`,
             type: 'parenthetical' as ElementType,
-            componentId: component.id,
+            componentId: componentId,
             content: component.parenthetical.trim()
           },
           // Dialogue element
           {
             id: `frontendId--${Math.random().toString(36).substr(2, 9)}`,
-            componentId: component.id,
+            componentId: componentId,
             type: elementType,
             content
           }
@@ -705,12 +750,12 @@ export const api = {
           {
             id: `frontendId--${Math.random().toString(36).substr(2, 9)}`,
             type: 'parenthetical' as ElementType,
-            componentId: component.id,
+            componentId: componentId,
             content: parentheticalContent
           },
           {
             id: `frontendId--${Math.random().toString(36).substr(2, 9)}`,
-            componentId: component.id,
+            componentId: componentId,
             type: elementType,
             content
           }
@@ -724,13 +769,13 @@ export const api = {
           {
             id: `frontendId--${Math.random().toString(36).substr(2, 9)}`,
             type: 'character' as ElementType,
-            componentId: component.id,
+            componentId: componentId,
             content: component.character_name || ''
           },
           // Dialogue element
           {
             id: `frontendId--${Math.random().toString(36).substr(2, 9)}`,
-            componentId: component.id,
+            componentId: componentId,
             type: elementType,
             content
           }
@@ -741,7 +786,7 @@ export const api = {
       return {
         id:  `frontendId--${Math.random().toString(36).substr(2, 9)}`,
         type: elementType,
-        componentId: component.id,
+        componentId: componentId,
         content
       } as ScriptElement;
     }).flat(); // Keep character elements this time

@@ -15,6 +15,10 @@ import { BeatSheetView } from '../BeatSheet/BeatSheetView';
 import { AlertProvider, useAlert } from '../Alert';
 import { GenerateNextSceneButton } from '../GenerateNextSceneButton';
 import { api } from '../../services/api';
+import { useParams, useNavigate } from 'react-router-dom';
+
+import { ExpandComponentResponse } from '../../services/api';
+
 
 import {
   ViewMode,
@@ -43,6 +47,7 @@ export function ScriptEditor({ scriptId, initialViewMode = 'script', scriptState
   // This ref helps us prevent multiple API calls for the same script ID
   const loadedScriptIdRef = useRef<string | null>(null);
   const [title, setTitle] = useState('Untitled Screenplay');
+  const navigate = useNavigate();
   const [elements, setElements] = useState<ScriptElementType[]>([
     { id: '1', type: 'scene-heading', content: '' }
   ]);
@@ -66,6 +71,11 @@ export function ScriptEditor({ scriptId, initialViewMode = 'script', scriptState
   const [loadError, setLoadError] = useState<string | null>(null);
   const [hasAttemptedLoad, setHasAttemptedLoad] = useState(false);
   const { showAlert } = useAlert();
+  const processedSceneIdsRef = useRef<Set<string>>(new Set());
+  const [expansionResults, setExpansionResults] = useState<ExpandComponentResponse | null>(null);
+  const [isLoadingExpansion, setIsLoadingExpansion] = useState(false);
+
+
 
   // Sidebar state preservation when switching views
   const [previousSidebarStates, setPreviousSidebarStates] = useState<{
@@ -137,6 +147,25 @@ export function ScriptEditor({ scriptId, initialViewMode = 'script', scriptState
       setBeatsAvailable(false);
     }
   }, [scriptState.context.creationMethod]);
+
+
+  useEffect(() => {
+    // Only proceed if we have a scene segment ID that we haven't processed yet
+    if (
+      currentSceneSegmentId &&
+      !isLoadingScript &&
+      !processedSceneIdsRef.current.has(currentSceneSegmentId)
+    ) {
+      console.log('Updating script state due to scene segment change:', currentSceneSegmentId);
+
+      // Mark this scene ID as processed to prevent loops
+      processedSceneIdsRef.current.add(currentSceneSegmentId);
+
+      // Now it's safe to update script state without causing a loop
+      scriptState.actions.generateFirstScene();
+    }
+  }, [currentSceneSegmentId, scriptState.actions, isLoadingScript]);
+
 
   // Fetch script metadata when the component mounts
   useEffect(() => {
@@ -250,8 +279,13 @@ export function ScriptEditor({ scriptId, initialViewMode = 'script', scriptState
     // Save current elements for comparison in future updates
     previousElementsRef.current = [...elements];
 
-    // Switch to script view
-    handleViewModeChange('script');
+    // if (scriptId) {
+    //   navigate(`/editor/${scriptId}?view=script&generated=true`);
+    // } else {
+    //   // Fallback to local view change
+    //   handleViewModeChange('script');
+    // }
+
   };
 
   // Generate next scene handler
@@ -393,15 +427,15 @@ export function ScriptEditor({ scriptId, initialViewMode = 'script', scriptState
       if (currentIndex > 0 && currentElement.content.trim() === '') {
         e.preventDefault();
         const previousElement = elements[currentIndex - 1];
-        
+
         // Add tracking for deletion
         deletedElementsRef.current.add(id);
-        
+
         // If deleting a scene heading, track segment deletion
         if (currentElement.type === 'scene-heading' && currentElement.sceneSegmentId) {
           const segmentId = currentElement.sceneSegmentId;
           deletedSegmentsRef.current.add(segmentId);
-          
+
           // Mark all elements in this segment for deletion tracking
           elements.forEach(el => {
             if (el.sceneSegmentId === segmentId) {
@@ -409,10 +443,10 @@ export function ScriptEditor({ scriptId, initialViewMode = 'script', scriptState
             }
           });
         }
-        
+
         // Mark as having unsaved changes
         setHasUnsavedChanges(true);
-        
+
         // Existing deletion logic
         const updatedElements = elements.filter(el => el.id !== id);
         setElements(updatedElements);
@@ -480,44 +514,44 @@ export function ScriptEditor({ scriptId, initialViewMode = 'script', scriptState
     let text = html.replace(/<[^>]+>/g, '');
     // Replace HTML entities
     text = text.replace(/&nbsp;/g, ' ')
-               .replace(/&amp;/g, '&')
-               .replace(/&lt;/g, '<')
-               .replace(/&gt;/g, '>')
-               .replace(/&quot;/g, '"');
+      .replace(/&amp;/g, '&')
+      .replace(/&lt;/g, '<')
+      .replace(/&gt;/g, '>')
+      .replace(/&quot;/g, '"');
     return text;
   };
-  
-  
+
+
   const handleSave = async () => {
     if (!scriptId) {
       showAlert('error', 'Script ID is missing');
       return;
     }
-  
+
     try {
-        setIsSaving(true);
-        
+      setIsSaving(true);
+
       // Group by segment ID (this part is correct)
       const changedSegments: Record<string, any[]> = {};
-      
+
       // Get modified elements
-      const changedElements = elements.filter(el => 
+      const changedElements = elements.filter(el =>
         modifiedElementsRef.current.has(el.id)
       );
-      
+
       // For each changed element, we need to map back to the original component ID
       changedElements.forEach(el => {
         if (!el.sceneSegmentId) return;
-        
+
         if (!changedSegments[el.sceneSegmentId]) {
           changedSegments[el.sceneSegmentId] = [];
         }
-        
+
         // Find original component ID from metadata or use a mapping
         // This is where the problem is - we need to maintain component_id
         const originalComponentId = el.componentId;
 
-            
+
         // Convert to backend component format
         changedSegments[el.sceneSegmentId].push({
           id: originalComponentId, // Use the original ID from backend
@@ -528,7 +562,7 @@ export function ScriptEditor({ scriptId, initialViewMode = 'script', scriptState
           parenthetical: el.type === 'parenthetical' ? stripHtml(el.content) : null,
         });
       });
-        
+
       // Handle deleted elements
       const deletedIds = Array.from(deletedElementsRef.current);
       const deletedSegmentIds = Array.from(deletedSegmentsRef.current);
@@ -537,15 +571,15 @@ export function ScriptEditor({ scriptId, initialViewMode = 'script', scriptState
       const success = await api.saveScriptChanges(scriptId, {
         changedSegments,
         deletedElements: deletedIds,
-        deletedSegments: deletedSegmentIds 
-  
+        deletedSegments: deletedSegmentIds
+
       });
-      
+
       if (success) {
         // Reset tracking
         modifiedElementsRef.current.clear();
         deletedElementsRef.current.clear();
-        deletedSegmentsRef.current.clear();  
+        deletedSegmentsRef.current.clear();
         setHasUnsavedChanges(false);
         showAlert('success', 'Script saved successfully');
       }
@@ -556,7 +590,7 @@ export function ScriptEditor({ scriptId, initialViewMode = 'script', scriptState
       setIsSaving(false);
     }
   };
-  
+
 
   const handleTypeChange = (id: string, type: ElementType) => {
     setElements(prev => {
@@ -814,6 +848,35 @@ Copyright: ${titlePage.copyright}
     );
   }
 
+const handleRequestExpansion = async (componentId: string) => {
+  if (!componentId) {
+    showAlert('error', 'Cannot expand: Missing component ID');
+    return;
+  }
+  
+  try {
+    // Show loading state
+    setIsLoadingExpansion(true);
+    
+    // Ensure right sidebar is open to show results
+    setIsRightSidebarOpen(true);
+    
+    // Clear any previous results
+    setExpansionResults(null);
+    
+    // Call the API
+    const results = await api.expandComponent(componentId);
+    
+    // Set the results
+    setExpansionResults(results);
+  } catch (error) {
+    console.error('Failed to expand content:', error);
+    showAlert('error', error instanceof Error ? error.message : 'Failed to expand text');
+  } finally {
+    setIsLoadingExpansion(false);
+  }
+};
+
   // Handle empty script state - when elements are empty but script should have content
   const isScriptEmpty = elements.length === 1 && elements[0].content === '';
   const showEmptyStateMessage = isScriptEmpty &&
@@ -955,6 +1018,8 @@ Copyright: ${titlePage.copyright}
                         suggestions={suggestionsEnabled ? suggestions : undefined}
                         showAITools={suggestionsEnabled}
                         elementRef={elementRefs.current[element.id]}
+                        onRequestExpansion={handleRequestExpansion}
+                        componentId={element.componentId} // Pass the componentId
                       />
                     </div>
                   ))}
@@ -995,6 +1060,8 @@ Copyright: ${titlePage.copyright}
             setIsOpen={setIsRightSidebarOpen}
             onApplySuggestion={handleApplySuggestion}
             selectedElementId={selectedElement}
+            expansionResults={expansionResults}
+            isLoadingExpansion={isLoadingExpansion}
           />
         )}
       </div>

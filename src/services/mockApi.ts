@@ -64,6 +64,7 @@ interface AIScriptResponse {
 }
 
 const API_BASE_URL = import.meta.env.VITE_API_URL;
+// const API_BASE_URL = "http://localhost:8000/api/v1";
 
 // Fallback to mock data if API_BASE_URL is not set
 const mockScripts: Script[] = [
@@ -117,16 +118,16 @@ const mapActFromApi = (apiAct: string): Beat['act'] => {
 // Helper function to handle API errors consistently
 function handleApiError(error: any, defaultMessage: string): never {
   console.error('Mock API Error:', error);
-  
+
   const apiError: ApiError = {
     message: error.message || defaultMessage,
     status: error.status || 500
   };
-  
+
   if (error.code) {
     apiError.code = error.code;
   }
-  
+
   throw apiError;
 }
 
@@ -169,17 +170,17 @@ export const mockApi = {
 
   async getAllUserScripts(): Promise<Script[]> {
     const { data: { session } } = await supabase.auth.getSession();
-    
+
     if (!session) {
       throw { message: 'User must be authenticated to fetch scripts', status: 401 };
     }
-  
+
     // If API_BASE_URL is not set, return mock data
     if (!API_BASE_URL) {
       console.log('API URL not configured, using mock data');
       return mockScripts;
     }
-  
+
     try {
       // Set a high limit to get all scripts (assuming max 50 as mentioned)
       const response = await fetch(`${API_BASE_URL}/scripts/?skip=0&limit=50`, {
@@ -190,7 +191,7 @@ export const mockApi = {
           'Accept': 'application/json'
         }
       });
-  
+
       if (!response.ok) {
         const errorData = await response.json().catch(() => null);
         throw {
@@ -198,7 +199,7 @@ export const mockApi = {
           status: response.status
         };
       }
-  
+
       const data = await response.json();
       return data;
     } catch (error: any) {
@@ -209,7 +210,7 @@ export const mockApi = {
       });
       // showAlert('error', error instanceof Error ? error.message : 'Failed to fetch all scripts');
 
-      
+
       // Fallback to mock data on error if in development
       if (import.meta.env.DEV) {
         console.log('Falling back to mock data');
@@ -218,11 +219,11 @@ export const mockApi = {
       return handleApiError(error, 'Failed to fetch scripts');
     }
   },
-  
-  
+
+
   async getUserScripts(): Promise<Script[]> {
     const { data: { session } } = await supabase.auth.getSession();
-    
+
     if (!session) {
       throw { message: 'User must be authenticated to fetch scripts', status: 401 };
     }
@@ -259,13 +260,13 @@ export const mockApi = {
         status: error.status,
         stack: error.stack
       });
-      
+
       // Fallback to mock data on error if in development
       if (import.meta.env.DEV) {
         console.log('Falling back to mock data');
         return mockScripts;
       }
-      
+
       return handleApiError(error, 'Failed to fetch scripts');
     }
   },
@@ -273,14 +274,14 @@ export const mockApi = {
   // Regular script creation
   async createScript(input: CreateScriptInput): Promise<Script> {
     const { data: { session } } = await supabase.auth.getSession();
-    
+
     if (!session) {
-      return handleApiError({ 
+      return handleApiError({
         message: 'User must be authenticated to create a script',
         status: 401
       }, 'Authentication required');
     }
-  
+
     // Validate required fields
     if (!input.title?.trim()) {
       return handleApiError({
@@ -292,7 +293,7 @@ export const mockApi = {
     // If API_BASE_URL is not set, simulate creation with mock data
     if (!API_BASE_URL) {
       console.log("Creating regular script with mock data");
-      
+
       const newScript: Script = {
         id: generateId(),
         name: input.title,
@@ -374,9 +375,9 @@ export const mockApi = {
     beats: Beat[];
   }> {
     const { data: { session } } = await supabase.auth.getSession();
-    
+
     if (!session) {
-      return handleApiError({ 
+      return handleApiError({
         message: 'User must be authenticated to create an AI script',
         status: 401
       }, 'Authentication required');
@@ -393,7 +394,7 @@ export const mockApi = {
     // If API_BASE_URL is not set, simulate creation with mock data
     if (!API_BASE_URL) {
       console.log("Creating AI script with mock data");
-      
+
       const newScript: Script = {
         id: generateId(),
         name: input.title,
@@ -466,16 +467,16 @@ export const mockApi = {
       }
 
       const aiResponse: AIScriptResponse = await response.json();
-      
+
       // Transform the WITH_AI response to our Script format
       const scriptData = apiResponseToScript({
         ...aiResponse.script,
         // Add any additional fields if needed
       });
-      
+
       // Make sure to set the correct creation method
       scriptData.creation_method = 'WITH_AI';
-      
+
       // Transform API beats to our Beat format
       const beatsData = apiBeatsToBeats(aiResponse.beats);
 
@@ -541,11 +542,80 @@ export const mockApi = {
     }
   },
 
+  // Add this method to the mockApi object in mockApi.ts
+  async deleteScript(scriptId: string): Promise<void> {
+    const { data: { session } } = await supabase.auth.getSession();
+
+    if (!session) {
+      return handleApiError({
+        message: 'User must be authenticated to delete a script',
+        status: 401
+      }, 'Authentication required');
+    }
+
+    // If API_BASE_URL is not set, simulate deletion with mock data
+    if (!API_BASE_URL) {
+      console.log(`Simulating deletion of script: ${scriptId}`);
+
+      const scriptIndex = mockScripts.findIndex(s => s.id === scriptId);
+      if (scriptIndex === -1) {
+        return handleApiError({
+          message: 'Script not found',
+          status: 404
+        }, 'Script not found');
+      }
+
+      // Remove from mock data
+      mockScripts.splice(scriptIndex, 1);
+      return;
+    }
+
+    try {
+      const response = await fetch(`${API_BASE_URL}/scripts/${scriptId}`, {
+        method: 'DELETE',
+        headers: {
+          'Authorization': `Bearer ${session.access_token}`,
+          'Accept': 'application/json'
+        }
+      });
+
+      // 204 No Content is the expected success response for deletion
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => null);
+        throw {
+          message: errorData?.message || `HTTP error! status: ${response.status}`,
+          status: response.status
+        };
+      }
+
+      // Successful deletion (nothing to return)
+      return;
+    } catch (error: any) {
+      console.error('Failed to delete script:', {
+        error: error.message,
+        status: error.status,
+        stack: error.stack
+      });
+
+      // Fallback to mock data on error if in development
+      if (import.meta.env.DEV) {
+        console.log('Falling back to mock deletion');
+        const scriptIndex = mockScripts.findIndex(s => s.id === scriptId);
+        if (scriptIndex !== -1) {
+          mockScripts.splice(scriptIndex, 1);
+          return;
+        }
+      }
+
+      return handleApiError(error, 'Failed to delete script');
+    }
+  },
+
   async uploadScript(input: UploadScriptInput): Promise<Script> {
     const { data: { session } } = await supabase.auth.getSession();
-    
+
     if (!session) {
-      return handleApiError({ 
+      return handleApiError({
         message: 'User must be authenticated to upload a script',
         status: 401
       }, 'Authentication required');
@@ -570,7 +640,7 @@ export const mockApi = {
     // If API_BASE_URL is not set, simulate upload with mock data
     if (!API_BASE_URL) {
       console.log(`Uploading script: ${input.file.name}`);
-      
+
       const newScript: Script = {
         id: generateId(),
         name: input.title || input.file.name.replace(/\.[^/.]+$/, ''),
@@ -589,7 +659,7 @@ export const mockApi = {
     try {
       const formData = new FormData();
       formData.append('file', input.file);
-      
+
       if (input.title) {
         formData.append('title', input.title);
       }
@@ -644,9 +714,9 @@ export const mockApi = {
 
   async getScriptById(scriptId: string): Promise<Script> {
     const { data: { session } } = await supabase.auth.getSession();
-    
+
     if (!session) {
-      return handleApiError({ 
+      return handleApiError({
         message: 'User must be authenticated to fetch scripts',
         status: 401
       }, 'Authentication required');
@@ -655,14 +725,14 @@ export const mockApi = {
     // If API_BASE_URL is not set, return mock data
     if (!API_BASE_URL) {
       const script = mockScripts.find(s => s.id === scriptId);
-      
+
       if (!script) {
         return handleApiError({
           message: 'Script not found',
           status: 404
         }, 'Script not found');
       }
-      
+
       return script;
     }
 
@@ -683,7 +753,7 @@ export const mockApi = {
             status: 404
           };
         }
-        
+
         const errorData = await response.json().catch(() => null);
         throw {
           message: errorData?.message || `HTTP error! status: ${response.status}`,
@@ -699,22 +769,22 @@ export const mockApi = {
         status: error.status,
         stack: error.stack
       });
-      
+
       // Fallback to mock data on error if in development
       if (import.meta.env.DEV) {
         console.log('Falling back to mock data for script lookup');
         const script = mockScripts.find(s => s.id === scriptId);
-        
+
         if (!script) {
           return handleApiError({
             message: 'Script not found',
             status: 404
           }, 'Script not found');
         }
-        
+
         return script;
       }
-      
+
       return handleApiError(error, 'Failed to fetch script');
     }
   },
@@ -727,11 +797,11 @@ export const mockApi = {
   }> {
     try {
       const script = await this.getScriptById(scriptId);
-      
+
       // For mock data, determine state based on creation method
       let hasBeats = false;
       let scenesCount = 0;
-      
+
       if (script.creation_method === 'WITH_AI') {
         hasBeats = true;
         scenesCount = script.progress > 50 ? 2 : script.progress > 20 ? 1 : 0;
@@ -739,7 +809,7 @@ export const mockApi = {
         hasBeats = false;
         scenesCount = Math.floor(script.progress / 10); // Rough estimate
       }
-      
+
       return {
         creationMethod: script.creation_method,
         hasBeats,
@@ -754,7 +824,7 @@ export const mockApi = {
   async generateNextScene(scriptId: string): Promise<{ success: boolean; scene_segment_id: string }> {
     try {
       const script = await this.getScriptById(scriptId);
-      
+
       // Only WITH_AI scripts can generate next scenes
       if (script.creation_method !== 'WITH_AI') {
         return handleApiError({
@@ -762,17 +832,17 @@ export const mockApi = {
           status: 400
         }, 'Cannot generate scene');
       }
-      
+
       // Mock generating a new scene segment
       const newSceneId = `scene-segment-${Date.now()}`;
-      
+
       // Update the mock script with the new scene segment ID
       const scriptIndex = mockScripts.findIndex(s => s.id === scriptId);
       if (scriptIndex >= 0) {
         mockScripts[scriptIndex].current_scene_segment_id = newSceneId;
         mockScripts[scriptIndex].progress += 10; // Increase progress
       }
-      
+
       return {
         success: true,
         scene_segment_id: newSceneId

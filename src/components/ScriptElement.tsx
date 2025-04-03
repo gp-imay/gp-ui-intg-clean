@@ -15,6 +15,7 @@ import { CommentInput } from './ScriptEditor/CommentInput';
 import { CommentTooltip } from './ScriptEditor/CommentTooltip';
 import { AIToolsPanel } from './ScriptEditor/AIToolsPanel';
 import { Sparkles } from 'lucide-react';
+import {useAlert} from './Alert';
 
 interface ToolbarPosition {
   top: number;
@@ -62,6 +63,8 @@ interface ScriptElementProps {
   formatSettings: ElementFormat;
   suggestions?: SceneSuggestions;
   showAITools?: boolean;
+  componentId?: string;
+  onRequestExpansion?: (componentId: string) => void;
 }
 
 interface ScriptElementRef {
@@ -87,13 +90,16 @@ export const ScriptElement = forwardRef<ScriptElementRef, ScriptElementProps>((p
     comments = [],
     formatSettings,
     suggestions,
-    showAITools = false
+    showAITools = false,
+    componentId,
+    onRequestExpansion,
+
   } = props;
 
   const containerRef = useRef<HTMLDivElement>(null);
   const suggestionsRef = useRef<HTMLDivElement>(null);
   const [showFormatting, setShowFormatting] = useState(false);
-  const [showAIToolsPanel, setShowAIToolsPanel] = useState(false);
+  const [isAIToolsPanelOpen, setIsAIToolsPanelOpen] = useState(false);
   const [isFocused, setIsFocused] = useState(false);
   const [cursorPosition, setCursorPosition] = useState(0);
   const [isClickingSuggestion, setIsClickingSuggestion] = useState(false);
@@ -115,7 +121,10 @@ export const ScriptElement = forwardRef<ScriptElementRef, ScriptElementProps>((p
   const [cursorBlinking, setCursorBlinking] = useState(true);
   const [lastCursorActivity, setLastCursorActivity] = useState(Date.now());
   const formatButtonsTimeoutRef = useRef<NodeJS.Timeout | null>(null);
-  const aiToolsTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const aiToolsPanelRef = useRef<HTMLDivElement>(null);
+  const aiButtonRef = useRef<HTMLButtonElement>(null);
+  const { showAlert } = useAlert();
+  
 
   const {
     suggestions: suggestionsData,
@@ -149,6 +158,26 @@ export const ScriptElement = forwardRef<ScriptElementRef, ScriptElementProps>((p
     }, 100);
   };
 
+  const handleAIAction = async (action: string) => {
+    // Close the AI tools panel
+    closeAIToolsPanel();
+    
+    if (action === 'expand') {
+      if (!componentId) {
+        showAlert('error', 'Cannot expand: No component ID available for this element');
+        return;
+      }
+      
+      if (onRequestExpansion) {
+        onRequestExpansion(componentId);
+      }
+    } else if (onAIAssistClick) {
+      // Handle other AI actions
+      onAIAssistClick();
+    }
+  };
+  
+
   // Handle format buttons panel visibility
   const handleFormatButtonsMouseEnter = () => {
     if (formatButtonsTimeoutRef.current) {
@@ -164,19 +193,12 @@ export const ScriptElement = forwardRef<ScriptElementRef, ScriptElementProps>((p
     }, 300);
   };
 
-  // Handle AI tools panel visibility
-  const handleAIToolsMouseEnter = () => {
-    if (aiToolsTimeoutRef.current) {
-      clearTimeout(aiToolsTimeoutRef.current);
-      aiToolsTimeoutRef.current = null;
-    }
-    setShowAIToolsPanel(true);
+  const toggleAIToolsPanel = () => {
+    setIsAIToolsPanelOpen(prev => !prev);
   };
 
-  const handleAIToolsMouseLeave = () => {
-    aiToolsTimeoutRef.current = setTimeout(() => {
-      setShowAIToolsPanel(false);
-    }, 300);
+  const closeAIToolsPanel = () => {
+    setIsAIToolsPanelOpen(false);
   };
 
   // Track cursor activity for blinking
@@ -193,6 +215,31 @@ export const ScriptElement = forwardRef<ScriptElementRef, ScriptElementProps>((p
     return () => clearInterval(cursorBlinkInterval);
   }, [lastCursorActivity]);
 
+  useEffect(() => {
+    if (!isAIToolsPanelOpen) return;
+    
+    // Add a small delay before attaching the handler
+    const timeoutId = setTimeout(() => {
+      const handleClickOutside = (event: MouseEvent) => {
+        if (
+          aiToolsPanelRef.current && 
+          !aiToolsPanelRef.current.contains(event.target as Node) &&
+          aiButtonRef.current && 
+          !aiButtonRef.current.contains(event.target as Node)
+        ) {
+          closeAIToolsPanel();
+        }
+      };
+    
+      document.addEventListener('mousedown', handleClickOutside);
+      return () => {
+        document.removeEventListener('mousedown', handleClickOutside);
+      };
+    }, 50); // Small delay to ensure React has updated the DOM
+    
+    return () => clearTimeout(timeoutId);
+  }, [isAIToolsPanelOpen]);
+  
   const editor = useEditor({
     extensions: [
       StarterKit.configure({
@@ -202,7 +249,7 @@ export const ScriptElement = forwardRef<ScriptElementRef, ScriptElementProps>((p
         listItem: false,
         codeBlock: false,
         horizontalRule: false,
-        table: false,
+        // table: false,
         dropcursor: false,
         gapcursor: false,
         paragraph: {
@@ -491,18 +538,6 @@ export const ScriptElement = forwardRef<ScriptElementRef, ScriptElementProps>((p
     }
   }, [editor, formatSettings, type]);
 
-  // Clean up timeouts on unmount
-  useEffect(() => {
-    return () => {
-      if (formatButtonsTimeoutRef.current) {
-        clearTimeout(formatButtonsTimeoutRef.current);
-      }
-      if (aiToolsTimeoutRef.current) {
-        clearTimeout(aiToolsTimeoutRef.current);
-      }
-    };
-  }, []);
-
   useImperativeHandle(ref, () => ({
     containsCommentRange: (from: number, to: number) => {
       if (!editor) return false;
@@ -744,11 +779,12 @@ export const ScriptElement = forwardRef<ScriptElementRef, ScriptElementProps>((p
     }, 10);
   };
 
-  const handleAIAction = (action: string) => {
-    if (onAIAssistClick) {
-      onAIAssistClick();
-    }
-  };
+  // const handleAIAction = (action: string) => {
+  //   console.log("tell me something")
+  //   if (onAIAssistClick) {
+  //     onAIAssistClick();
+  //   }
+  // };
 
   return (
     <div 
@@ -784,34 +820,41 @@ export const ScriptElement = forwardRef<ScriptElementRef, ScriptElementProps>((p
 
       {/* Right side - AI tools button */}
       {showAITools && (
-        <div 
-          className="absolute -right-8 top-1/2 -translate-y-1/2 transition-opacity duration-200"
-          onMouseEnter={handleAIToolsMouseEnter}
-          onMouseLeave={handleAIToolsMouseLeave}
-        >
-          <button
-            className={`p-1.5 rounded-full transition-colors ${
-              showAIToolsPanel || isSelected ? 'opacity-100' : 'opacity-0'
-            } text-gray-400 hover:bg-blue-50 hover:text-blue-500 group`}
-            title="AI Tools"
-            onClick={() => onAIAssistClick?.()}
+          <div 
+            className="absolute -right-8 top-1/2 -translate-y-1/2 transition-opacity duration-200"
           >
-            <div className="ai-icon-container scale-75">
-              <div className="ai-icon-pulse"></div>
-              <Sparkles className="ai-icon-sparkle w-4 h-4" />
-            </div>
-          </button>
-        </div>
-      )}
+            <button
+              ref={aiButtonRef}
+              className={`p-1.5 rounded-full transition-colors ${
+                isAIToolsPanelOpen || isSelected ? 'opacity-100' : 'opacity-0'
+              } text-gray-400 hover:bg-blue-50 hover:text-blue-500 group`}
+              title="AI Tools"
+              onClick={(e) => {
+                e.stopPropagation(); // Add this to prevent event bubbling
+                toggleAIToolsPanel();
+              }}
+            >
+              <div className="ai-icon-container scale-75">
+                <div className="ai-icon-pulse"></div>
+                <Sparkles className="ai-icon-sparkle w-4 h-4" />
+              </div>
+            </button>
+          </div>
+        )}
 
-      {showAITools && (
-        <AIToolsPanel
-          showAITools={showAIToolsPanel}
-          onAIAction={handleAIAction}
-          onMouseEnter={handleAIToolsMouseEnter}
-          onMouseLeave={handleAIToolsMouseLeave}
-        />
-      )}
+        {showAITools && (
+          <AIToolsPanel
+            ref={aiToolsPanelRef} // Add this ref
+            showAITools={isAIToolsPanelOpen} // Rename to match our new state variable
+            onAIAction={(action) => {
+              handleAIAction(action);
+              closeAIToolsPanel(); // Close panel after selection
+            }}
+            // Remove these props:
+            // onMouseEnter={handleAIToolsMouseEnter}
+            // onMouseLeave={handleAIToolsMouseLeave}
+          />
+        )}
 
       <div className="relative flex-1">
         {type === 'parenthetical' && (
@@ -927,4 +970,3 @@ export const ScriptElement = forwardRef<ScriptElementRef, ScriptElementProps>((p
 });
 
 ScriptElement.displayName = 'ScriptElement';
-

@@ -21,6 +21,8 @@ interface MemoizedScriptElementProps {
   suggestions?: any;
   showAITools?: boolean;
   elementRef: React.RefObject<any>;
+  componentId?: string;
+  onRequestExpansion?: (componentId: string) => void;
 }
 
 /**
@@ -46,7 +48,9 @@ export const MemoizedScriptElement = memo(
     formatSettings,
     suggestions,
     showAITools,
-    elementRef
+    elementRef,
+    componentId,
+    onRequestExpansion,
   }: MemoizedScriptElementProps) => {
     return (
       <ScriptElement
@@ -68,6 +72,8 @@ export const MemoizedScriptElement = memo(
         formatSettings={formatSettings}
         suggestions={suggestions}
         showAITools={showAITools}
+        componentId={componentId}
+        onRequestExpansion={onRequestExpansion}
       />
     );
   },

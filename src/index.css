@@ -535,3 +535,25 @@
 .animate-fade-in {
   animation: fadeIn 0.2s ease-out forwards;
 }
+
+
+/* CSS for the Scrollable Right Side Bar Panel */
+.expansion-results-container {
+  max-height: calc(100vh - 200px);
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(156, 163, 175, 0.3) transparent;
+}
+
+.expansion-results-container::-webkit-scrollbar {
+  width: 4px;
+}
+
+.expansion-results-container::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.expansion-results-container::-webkit-scrollbar-thumb {
+  background-color: rgba(156, 163, 175, 0.3);
+  border-radius: 2px;
+}

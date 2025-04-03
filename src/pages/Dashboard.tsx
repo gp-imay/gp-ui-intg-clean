@@ -11,7 +11,6 @@ import { useAlert } from '../components/Alert';
 import {
   LogOut,
   Search,
-  Bell,
   ChevronDown,
   User,
   Clock,
@@ -24,6 +23,7 @@ import {
   Megaphone,
   Plus,
   ChevronRight,
+  Trash2
 } from 'lucide-react';
 import { mockApi, Script } from '../services/mockApi';
 
@@ -39,9 +39,9 @@ export function Dashboard() {
   const [scripts, setScripts] = useState<Script[]>([]);
   const [loading, setLoading] = useState(true);
   const [activeSection, setActiveSection] = useState<Section>('scripts');
-  const profileMenuRef = useRef<HTMLDivElement>(null);
   const [showAllScripts, setShowAllScripts] = useState(false);
   const [showAccountSettingsModal, setShowAccountSettingsModal] = useState(false);
+  const profileMenuRef = useRef<HTMLDivElement>(null);
   const INITIAL_SCRIPT_LIMIT = 6;
 
   useClickOutside(profileMenuRef, () => {
@@ -130,6 +130,30 @@ export function Dashboard() {
     fetchAllScripts();
   };
 
+  const handleDeleteScript = async (scriptId: string, e: React.MouseEvent) => {
+    e.stopPropagation(); // Prevent row click event
+    try {
+      // Show confirmation dialog
+      if (!window.confirm('Are you sure you want to delete this script?')) {
+        return;
+      }
+  
+      setLoading(true);
+      
+      // Call the API to delete the script
+      await mockApi.deleteScript(scriptId);
+      
+      // Remove script from state
+      setScripts(prevScripts => prevScripts.filter(script => script.id !== scriptId));
+      showAlert('success', 'Script deleted successfully');
+    } catch (error) {
+      console.error('Failed to delete script:', error);
+      showAlert('error', 'Problem in deletion, try again after sometime');
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const handleChangeDisplayName = () => {
     showAlert('info', 'Change display name functionality coming soon.');
   };
@@ -179,7 +203,7 @@ export function Dashboard() {
             <div className="px-6 py-8 text-center text-gray-500">
               <FileText className="h-12 w-12 text-gray-300 mx-auto mb-4" />
               <p className="text-lg font-medium mb-2">No scripts yet</p>
-              <p className="text-sm">Create your first script by clicking the "Create New Project" button.</p>
+              <p className="text-sm">Create your first script by clicking the "Create New Script" button.</p>
             </div>
           ) : (
             <div>
@@ -199,6 +223,9 @@ export function Dashboard() {
                         </th>
                         <th scope="col" className="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider w-1/4">
                           Type
+                        </th>
+                        <th scope="col" className="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider w-16">
+                          Actions
                         </th>
                         {/* Create an empty column to account for scrollbar width when it appears */}
                         {showAllScripts && <th className="w-[17px]"></th>}
@@ -247,6 +274,15 @@ export function Dashboard() {
                                   : 'Manual'}
                               </span>
                             </td>
+                            <td className="px-6 py-4 whitespace-nowrap w-16 text-center">
+                              <button
+                                onClick={(e) => handleDeleteScript(script.id, e)}
+                                className="text-gray-400 hover:text-red-600 transition-colors p-1 rounded-full hover:bg-red-50"
+                                title="Delete script"
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </button>
+                            </td>
                           </tr>
                         ))}
                       </tbody>
@@ -290,6 +326,15 @@ export function Dashboard() {
                               : 'Manual'}
                           </span>
                         </div>
+                      </div>
+                      <div className="mt-2 flex justify-end">
+                        <button
+                          onClick={(e) => handleDeleteScript(script.id, e)}
+                          className="text-gray-400 hover:text-red-600 transition-colors p-1 rounded-full hover:bg-red-50"
+                          title="Delete script"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
                       </div>
                     </div>
                   ))}
@@ -405,6 +450,17 @@ export function Dashboard() {
               </h1>
             </div>
 
+            <div className="flex-1 max-w-2xl mx-8">
+              <div className="relative">
+                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-5 w-5 text-gray-400" />
+                <input
+                  type="text"
+                  placeholder="Search scripts, projects..."
+                  className="w-full pl-10 pr-4 py-2 bg-gray-50 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                />
+              </div>
+            </div>
+
             <div className="flex items-center gap-4">
               <div className="relative" ref={profileMenuRef}>
                 <button
@@ -435,7 +491,7 @@ export function Dashboard() {
                       <p className="text-sm text-gray-600">{user?.email}</p>
                     </div>
                     <div className="py-2">
-                    {/* <button 
+                      <button 
                         onClick={() => {
                           setShowAccountSettingsModal(true);
                           setShowProfileMenu(false);
@@ -444,7 +500,7 @@ export function Dashboard() {
                       >
                         <Settings className="h-4 w-4" />
                         Account Settings
-                      </button> */}
+                      </button>
                       <button
                         onClick={handleSignOut}
                         className="flex w-full items-center gap-3 px-4 py-2 text-sm text-gray-700 hover:bg-gray-50"
@@ -472,15 +528,14 @@ export function Dashboard() {
           onScriptCreated={handleScriptCreated}
         />
 
-      <AccountSettingsModal
-                isOpen={showAccountSettingsModal}
-                onClose={() => setShowAccountSettingsModal(false)}
-                displayName={user?.user_metadata?.full_name || user?.email || 'User'}
-                email={user?.email || ''}
-                onChangeDisplayName={handleChangeDisplayName}
-                onChangeEmail={handleChangeEmail}
-              />
-
+        <AccountSettingsModal
+          isOpen={showAccountSettingsModal}
+          onClose={() => setShowAccountSettingsModal(false)}
+          displayName={user?.user_metadata?.full_name || user?.email || 'User'}
+          email={user?.email || ''}
+          onChangeDisplayName={handleChangeDisplayName}
+          onChangeEmail={handleChangeEmail}
+        />
       </div>
     </div>
   );

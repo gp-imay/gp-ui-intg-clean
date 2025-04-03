@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { forwardRef } from 'react'; // Add forwardRef
 import { 
   Wand2, 
   Maximize2, 
@@ -11,21 +11,17 @@ import {
 interface AIToolsPanelProps {
   showAITools: boolean;
   onAIAction: (action: string) => void;
-  onMouseEnter: () => void;
-  onMouseLeave: () => void;
 }
 
-export const AIToolsPanel: React.FC<AIToolsPanelProps> = ({
+export const AIToolsPanel = forwardRef<HTMLDivElement, AIToolsPanelProps>(({
   showAITools,
-  onAIAction,
-  onMouseEnter,
-  onMouseLeave
-}) => {
+  onAIAction
+}, ref) => {
   const aiTools = [
-    { id: 'improve', icon: <Wand2 className="w-3.5 h-3.5 text-blue-600" />, label: 'Improve', color: 'blue' },
+    // { id: 'improve', icon: <Wand2 className="w-3.5 h-3.5 text-blue-600" />, label: 'Improve', color: 'blue' },
     { id: 'expand', icon: <Maximize2 className="w-3.5 h-3.5 text-purple-600" />, label: 'Expand', color: 'purple' },
     { id: 'shorten', icon: <Minimize2 className="w-3.5 h-3.5 text-amber-600" />, label: 'Shorten', color: 'amber' },
-    { id: 'dialogue', icon: <MessageCircle className="w-3.5 h-3.5 text-green-600" />, label: 'Dialogue', color: 'green' },
+    // { id: 'dialogue', icon: <MessageCircle className="w-3.5 h-3.5 text-green-600" />, label: 'Dialogue', color: 'green' },
     { id: 'rewrite', icon: <RefreshCw className="w-3.5 h-3.5 text-indigo-600" />, label: 'Rewrite', color: 'indigo' },
     { id: 'continue', icon: <Zap className="w-3.5 h-3.5 text-rose-600" />, label: 'Continue', color: 'rose' }
   ];
@@ -56,12 +52,14 @@ export const AIToolsPanel: React.FC<AIToolsPanelProps> = ({
 
   return (
     <div 
+      ref={ref}
       className={`absolute -right-[12rem] top-0 flex flex-col gap-0.5 transition-all duration-200 z-10 ${
         showAITools ? 'opacity-100' : 'opacity-0 pointer-events-none'
       }`}
-      onMouseEnter={onMouseEnter}
-      onMouseLeave={onMouseLeave}
+      onClick={(e) => e.stopPropagation()} // Add this to prevent click propagation
     >
+
+
       <div className="bg-white rounded-lg shadow-lg p-1">
         {aiTools.map((tool, index) => (
           <div
@@ -76,9 +74,13 @@ export const AIToolsPanel: React.FC<AIToolsPanelProps> = ({
             }}
           >
             <button
-              onClick={() => onAIAction(tool.id)}
+              onClick={(e) => {
+                e.stopPropagation(); // Add this to prevent event bubbling
+                onAIAction(tool.id);
+              }}
               className={`p-2 rounded-lg transition-colors flex items-center gap-2 w-48 text-gray-700 ${getHoverClasses(tool.color)} group`}
             >
+
               <div className={`w-6 h-6 rounded-full flex items-center justify-center transition-colors ${getColorClasses(tool.color)}`}>
                 {tool.icon}
               </div>
@@ -89,4 +91,4 @@ export const AIToolsPanel: React.FC<AIToolsPanelProps> = ({
       </div>
     </div>
   );
-};
+});
