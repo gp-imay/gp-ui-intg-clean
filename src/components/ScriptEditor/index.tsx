@@ -34,7 +34,8 @@ import {
   DEFAULT_SUGGESTIONS,
   UserProfile,
   DEFAULT_USER_PROFILES,
-  ScriptStateValues
+  ScriptStateValues,
+  AIActionType
 } from '../../types/screenplay';
 
 interface ScriptEditorProps {
@@ -848,12 +849,12 @@ Copyright: ${titlePage.copyright}
     );
   }
 
-const handleRequestExpansion = async (componentId: string) => {
-  if (!componentId) {
+  const handleRequestExpansion = async (componentId: string, actionType: AIActionType ) => {
+    if (!componentId) {
     showAlert('error', 'Cannot expand: Missing component ID');
     return;
   }
-  
+  console.log("11111", "aa",actionType)
   try {
     // Show loading state
     setIsLoadingExpansion(true);
@@ -864,11 +865,29 @@ const handleRequestExpansion = async (componentId: string) => {
     // Clear any previous results
     setExpansionResults(null);
     
-    // Call the API
-    const results = await api.expandComponent(componentId);
+    console.log("010",actionType)
+    if (actionType === "expand") {
+      console.log("010",actionType)
+      const results = await api.expandComponent(componentId);
+      setExpansionResults(results);
+    }
+
+    if (actionType === "shorten") {
+      const results = await api.shortenComponent(componentId);
+      setExpansionResults(results);
+    }
+
+    if (actionType === "continue") {
+      console.log("11111", "aa",actionType)
+      const results = await api.continueComponent(componentId);
+      setExpansionResults(results);
+    }
+
+    if (actionType === "rewrite") {
+      const results = await api.rewriteComponent(componentId);
+      setExpansionResults(results);
+    }
     
-    // Set the results
-    setExpansionResults(results);
   } catch (error) {
     console.error('Failed to expand content:', error);
     showAlert('error', error instanceof Error ? error.message : 'Failed to expand text');

@@ -697,6 +697,170 @@ export const api = {
     }
   },
 
+  async  shortenComponent(componentId: string): Promise<ExpandComponentResponse> {
+    try {
+      const token = await getToken();
+      
+      const response = await fetch(
+        `${API_BASE_URL}/scene-segments/components/${componentId}/shorten`,
+        {
+          method: 'POST',
+          headers: {
+            'accept': 'application/json',
+            'Authorization': `Bearer ${token}`
+          }
+        }
+      );
+  
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.message || errorData.error || `Error ${response.status}: Failed to expand text`);
+      }
+  
+      const originalResponse = await response.json();
+      // Normalize the response to have consistent property names
+      const normalizedResponse = {
+        ...originalResponse,
+        concise: originalResponse.concise ? {
+          ...originalResponse.concise,
+          expanded_text: originalResponse.concise.shortened_text || originalResponse.concise.expanded_text || originalResponse.concise.rewritten_text || originalResponse.concise.continuation_text
+        } : undefined,
+        dramatic: originalResponse.dramatic ? {
+          ...originalResponse.dramatic,
+          // expanded_text: originalResponse.dramatic.shortened_text || originalResponse.dramatic.expanded_text
+          expanded_text: originalResponse.dramatic.shortened_text || originalResponse.dramatic.expanded_text || originalResponse.dramatic.rewritten_text || originalResponse.dramatic.continuation_text
+        } : undefined,
+        // Normalize other properties similarly
+        minimal: originalResponse.minimal ? {
+          ...originalResponse.minimal,
+          expanded_text: originalResponse.minimal.shortened_text || originalResponse.minimal.expanded_text || originalResponse.minimal.rewritten_text || originalResponse.minimal.continuation_text
+        } : undefined,
+        humorous: originalResponse.humorous ? {
+          ...originalResponse.humorous,
+          expanded_text: originalResponse.humorous.shortened_text || originalResponse.humorous.expanded_text || originalResponse.humorous.rewritten_text || originalResponse.humorous.continuation_text
+        } : undefined,
+        poetic: originalResponse.poetic ? {
+          ...originalResponse.poetic,
+          expanded_text: originalResponse.poetic.shortened_text || originalResponse.poetic.expanded_text || originalResponse.poetic.rewritten_text || originalResponse.poetic.continuation_text
+        } : undefined,
+      };
+      return normalizedResponse;
+    } catch (error) {
+      console.error('Failed to expand component:', error);
+      throw error;
+    }
+  },
+  async  continueComponent(componentId: string): Promise<ExpandComponentResponse> {
+    try {
+      const token = await getToken();
+      
+      const response = await fetch(
+        `${API_BASE_URL}/scene-segments/components/${componentId}/continue`,
+        {
+          method: 'POST',
+          headers: {
+            'accept': 'application/json',
+            'Authorization': `Bearer ${token}`
+          }
+        }
+      );
+  
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.message || errorData.error || `Error ${response.status}: Failed to expand text`);
+      }
+  
+      const originalResponse = await response.json();
+      // Normalize the response to have consistent property names
+      const normalizedResponse = {
+        ...originalResponse,
+        concise: originalResponse.concise ? {
+          ...originalResponse.concise,
+          expanded_text: originalResponse.concise.shortened_text || originalResponse.concise.expanded_text || originalResponse.concise.rewritten_text || originalResponse.concise.continuation_text
+        } : undefined,
+        dramatic: originalResponse.dramatic ? {
+          ...originalResponse.dramatic,
+          // expanded_text: originalResponse.dramatic.shortened_text || originalResponse.dramatic.expanded_text
+          expanded_text: originalResponse.dramatic.shortened_text || originalResponse.dramatic.expanded_text || originalResponse.dramatic.rewritten_text || originalResponse.dramatic.continuation_text
+        } : undefined,
+        // Normalize other properties similarly
+        minimal: originalResponse.minimal ? {
+          ...originalResponse.minimal,
+          expanded_text: originalResponse.minimal.shortened_text || originalResponse.minimal.expanded_text || originalResponse.minimal.rewritten_text || originalResponse.minimal.continuation_text
+        } : undefined,
+        humorous: originalResponse.humorous ? {
+          ...originalResponse.humorous,
+          expanded_text: originalResponse.humorous.shortened_text || originalResponse.humorous.expanded_text || originalResponse.humorous.rewritten_text || originalResponse.humorous.continuation_text
+        } : undefined,
+        poetic: originalResponse.poetic ? {
+          ...originalResponse.poetic,
+          expanded_text: originalResponse.poetic.shortened_text || originalResponse.poetic.expanded_text || originalResponse.poetic.rewritten_text || originalResponse.poetic.continuation_text
+        } : undefined,
+      };
+      return normalizedResponse;
+  
+    } catch (error) {
+      console.error('Failed to expand component:', error);
+      throw error;
+    }
+  },
+
+  async  rewriteComponent(componentId: string): Promise<ExpandComponentResponse> {
+    try {
+      const token = await getToken();
+      
+      const response = await fetch(
+        `${API_BASE_URL}/scene-segments/components/${componentId}/rewrite`,
+        {
+          method: 'POST',
+          headers: {
+            'accept': 'application/json',
+            'Authorization': `Bearer ${token}`
+          }
+        }
+      );
+  
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.message || errorData.error || `Error ${response.status}: Failed to expand text`);
+      }
+  
+      const originalResponse = await response.json();
+      // Normalize the response to have consistent property names
+      const normalizedResponse = {
+        ...originalResponse,
+        concise: originalResponse.concise ? {
+          ...originalResponse.concise,
+          expanded_text: originalResponse.concise.shortened_text || originalResponse.concise.expanded_text || originalResponse.concise.rewritten_text || originalResponse.concise.continuation_text
+        } : undefined,
+        dramatic: originalResponse.dramatic ? {
+          ...originalResponse.dramatic,
+          // expanded_text: originalResponse.dramatic.shortened_text || originalResponse.dramatic.expanded_text
+          expanded_text: originalResponse.dramatic.shortened_text || originalResponse.dramatic.expanded_text || originalResponse.dramatic.rewritten_text || originalResponse.dramatic.continuation_text
+        } : undefined,
+        // Normalize other properties similarly
+        minimal: originalResponse.minimal ? {
+          ...originalResponse.minimal,
+          expanded_text: originalResponse.minimal.shortened_text || originalResponse.minimal.expanded_text || originalResponse.minimal.rewritten_text || originalResponse.minimal.continuation_text
+        } : undefined,
+        humorous: originalResponse.humorous ? {
+          ...originalResponse.humorous,
+          expanded_text: originalResponse.humorous.shortened_text || originalResponse.humorous.expanded_text || originalResponse.humorous.rewritten_text || originalResponse.humorous.continuation_text
+        } : undefined,
+        poetic: originalResponse.poetic ? {
+          ...originalResponse.poetic,
+          expanded_text: originalResponse.poetic.shortened_text || originalResponse.poetic.expanded_text || originalResponse.poetic.rewritten_text || originalResponse.poetic.continuation_text
+        } : undefined,
+      };
+      return normalizedResponse;
+    } catch (error) {
+      console.error('Failed to expand component:', error);
+      throw error;
+    }
+  },
+
+
+
   // Convert API scene components to script elements
   convertSceneComponentsToElements(components: AISceneComponent[]): ScriptElement[] {
     const sortedComponents = sortComponentsByPosition(components);

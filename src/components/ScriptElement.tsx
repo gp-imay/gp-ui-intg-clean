@@ -1,5 +1,5 @@
 import React, { useRef, useEffect, useState, forwardRef, useImperativeHandle } from 'react';
-import { ElementType, getNextElementType, Comment, ElementFormat, SceneSuggestions } from '../types/screenplay';
+import { ElementType, getNextElementType, Comment, ElementFormat, SceneSuggestions, AIActionType } from '../types/screenplay';
 import { useScriptSuggestions } from '../hooks/useScriptSuggestions';
 import { useEditor, EditorContent } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
@@ -64,7 +64,7 @@ interface ScriptElementProps {
   suggestions?: SceneSuggestions;
   showAITools?: boolean;
   componentId?: string;
-  onRequestExpansion?: (componentId: string) => void;
+  onRequestExpansion?: (componentId: string, actionType: AIActionType) => void;
 }
 
 interface ScriptElementRef {
@@ -161,15 +161,16 @@ export const ScriptElement = forwardRef<ScriptElementRef, ScriptElementProps>((p
   const handleAIAction = async (action: string) => {
     // Close the AI tools panel
     closeAIToolsPanel();
-    
-    if (action === 'expand') {
+    // console.log("11111",action)
+    if (action === 'expand' ||  action === 'shorten' || action === 'rewrite' || action === 'continue') {
       if (!componentId) {
         showAlert('error', 'Cannot expand: No component ID available for this element');
         return;
       }
       
       if (onRequestExpansion) {
-        onRequestExpansion(componentId);
+        
+        onRequestExpansion(componentId, action as AIActionType);
       }
     } else if (onAIAssistClick) {
       // Handle other AI actions

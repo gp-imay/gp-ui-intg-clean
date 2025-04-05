@@ -53,7 +53,10 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({
   };
 
   const renderExpansionResults = () => {
-    if (!expansionResults) return null;
+    if (!expansionResults) {
+      return null
+    };
+
 
     const expansionTypes = [
       { key: 'concise' as const, title: 'Concise Version' },

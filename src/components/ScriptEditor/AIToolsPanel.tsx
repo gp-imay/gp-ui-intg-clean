@@ -18,14 +18,12 @@ export const AIToolsPanel = forwardRef<HTMLDivElement, AIToolsPanelProps>(({
   onAIAction
 }, ref) => {
   const aiTools = [
-    // { id: 'improve', icon: <Wand2 className="w-3.5 h-3.5 text-blue-600" />, label: 'Improve', color: 'blue' },
     { id: 'expand', icon: <Maximize2 className="w-3.5 h-3.5 text-purple-600" />, label: 'Expand', color: 'purple' },
     { id: 'shorten', icon: <Minimize2 className="w-3.5 h-3.5 text-amber-600" />, label: 'Shorten', color: 'amber' },
-    // { id: 'dialogue', icon: <MessageCircle className="w-3.5 h-3.5 text-green-600" />, label: 'Dialogue', color: 'green' },
     { id: 'rewrite', icon: <RefreshCw className="w-3.5 h-3.5 text-indigo-600" />, label: 'Rewrite', color: 'indigo' },
     { id: 'continue', icon: <Zap className="w-3.5 h-3.5 text-rose-600" />, label: 'Continue', color: 'rose' }
   ];
-
+  
   const getColorClasses = (color: string) => {
     switch (color) {
       case 'blue': return 'bg-blue-100 group-hover:bg-blue-200 text-blue-600';

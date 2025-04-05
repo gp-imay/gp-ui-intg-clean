@@ -12,6 +12,8 @@ export interface TitlePage {
 }
 
 export type ElementType = 'scene-heading' | 'action' | 'character' | 'dialogue' | 'parenthetical' | 'transition';
+export type AIActionType = 'expand' | 'shorten' | 'rewrite' | 'continue';
+
 
 export interface Comment {
   id: string;
