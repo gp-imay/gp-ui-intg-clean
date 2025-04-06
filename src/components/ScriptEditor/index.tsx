@@ -106,7 +106,7 @@ export function ScriptEditor({ scriptId, initialViewMode = 'script', scriptState
   );
   const [comments, setComments] = useState<Comment[]>([]);
   const [activeCommentId, setActiveCommentId] = useState<string | null>(null);
-  const [suggestionsEnabled, setSuggestionsEnabled] = useState<boolean>(false);
+  const [suggestionsEnabled, setSuggestionsEnabled] = useState<boolean>(true);
   const contentRef = useRef<HTMLDivElement>(null);
   const elementRefs = useRef<{ [key: string]: React.RefObject<any> }>({});
   const [beatsAvailable, setBeatsAvailable] = useState(true);

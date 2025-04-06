@@ -135,9 +135,9 @@ export const EditorToolbar: React.FC<EditorToolbarProps> = ({
       </button>
       {onAIAssist && (
         <>
-          <div className="w-px h-6 bg-gray-200 mx-1" />
+          {/* <div className="w-px h-6 bg-gray-200 mx-1" /> */}
           <div className="relative">
-            <button
+            {/* <button
               ref={aiButtonRef}
               onClick={() => setShowAIMenu(!showAIMenu)}
               className={`p-1.5 rounded hover:bg-gray-100 relative ${
@@ -150,7 +150,7 @@ export const EditorToolbar: React.FC<EditorToolbarProps> = ({
                 <Sparkles className="ai-icon-sparkle w-4 h-4" />
               </div>
             </button>
-            
+             */}
             {showAIMenu && (
               <div 
                 ref={aiMenuRef}
