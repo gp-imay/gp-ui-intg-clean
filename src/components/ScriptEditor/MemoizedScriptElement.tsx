@@ -23,6 +23,7 @@ interface MemoizedScriptElementProps {
   elementRef: React.RefObject<any>;
   componentId?: string;
   onRequestExpansion?: (componentId: string) => void;
+  onNavigateElement: (currentId: string, direction: 'up' | 'down') => void;
 }
 
 /**
@@ -51,6 +52,7 @@ export const MemoizedScriptElement = memo(
     elementRef,
     componentId,
     onRequestExpansion,
+    onNavigateElement
   }: MemoizedScriptElementProps) => {
     return (
       <ScriptElement
@@ -74,6 +76,7 @@ export const MemoizedScriptElement = memo(
         showAITools={showAITools}
         componentId={componentId}
         onRequestExpansion={onRequestExpansion}
+        onNavigateElement={onNavigateElement} 
       />
     );
   },

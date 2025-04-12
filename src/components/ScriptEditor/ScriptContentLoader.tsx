@@ -323,9 +323,6 @@ export function ScriptContentLoader({
     );
   }
 
-  console.log("Elements length:", elements.length);
-  console.log("Is loading:", isInitialLoading);
-
   // Content is loaded, children will render the actual elements
   return (
     <>

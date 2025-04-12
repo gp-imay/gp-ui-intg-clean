@@ -69,6 +69,7 @@ interface ScriptElementProps {
   showAITools?: boolean;
   componentId?: string;
   onRequestExpansion?: (componentId: string, actionType: AIActionType) => void;
+  onNavigateElement: (currentId: string, direction: 'up' | 'down') => void; // <--- ADD THIS TYPE
 }
 
 interface ScriptElementRef {
@@ -98,7 +99,7 @@ export const ScriptElement = forwardRef<ScriptElementRef, ScriptElementProps>((p
     showAITools = false,
     componentId,
     onRequestExpansion,
-
+    onNavigateElement,
   } = props;
 
   const containerRef = useRef<HTMLDivElement>(null);
@@ -353,12 +354,37 @@ export const ScriptElement = forwardRef<ScriptElementRef, ScriptElementProps>((p
         // Track cursor activity
         setLastCursorActivity(Date.now());
         setCursorBlinking(true);
+        console.log('KEY TEST in ScriptElement:', event.key);
         
         // Handle suggestion navigation with arrow keys
-        if (showSuggestions && (event.key === 'ArrowUp' || event.key === 'ArrowDown')) {
-          event.preventDefault();
-          navigateSuggestions(event.key === 'ArrowUp' ? 'up' : 'down');
-          return true;
+        // if (showSuggestions && (event.key === 'ArrowUp' || event.key === 'ArrowDown')) {
+        //   event.preventDefault();
+        //   navigateSuggestions(event.key === 'ArrowUp' ? 'up' : 'down');
+        //   return true;
+        // }
+        
+        if (event.key === 'ArrowUp' || event.key === 'ArrowDown') {
+          const { empty, $head } = view.state.selection;
+          const isAtTop = empty && $head.parentOffset <= 1; // Cursor at the beginning
+          const isAtBottom = empty && $head.parentOffset >= view.state.doc.content.size - 1; // Cursor at the end
+
+          if (event.key === 'ArrowUp' && isAtTop) {
+            console.log("At top edge, navigating UP");
+            event.preventDefault(); // Prevent default only when navigating away
+            onNavigateElement(id, 'up'); // Call parent to handle navigation
+            return true; // Event handled
+          }
+
+          if (event.key === 'ArrowDown' && isAtBottom) {
+            console.log("At bottom edge, navigating DOWN");
+            event.preventDefault(); // Prevent default only when navigating away
+            onNavigateElement(id, 'down'); // Call parent to handle navigation
+            return true; // Event handled
+          }
+
+          // If not at the edge, allow default Tiptap/browser behavior *within* this element
+          console.log("Not at edge, allowing default arrow behavior");
+          return false;
         }
         
         // Handle suggestion selection with Tab only (not Enter)
@@ -671,13 +697,13 @@ export const ScriptElement = forwardRef<ScriptElementRef, ScriptElementProps>((p
     const handleKeyDown = (e: KeyboardEvent) => {
       if (!showSuggestions) return;
       
-      if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
-        e.preventDefault();
-        navigateSuggestions(e.key === 'ArrowUp' ? 'up' : 'down');
-      } else if (e.key === 'Escape') {
-        e.preventDefault();
-        resetSuggestions();
-      }
+      // if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
+      //   e.preventDefault();
+      //   navigateSuggestions(e.key === 'ArrowUp' ? 'up' : 'down');
+      // } else if (e.key === 'Escape') {
+      //   e.preventDefault();
+      //   resetSuggestions();
+      // }
       
       // Update cursor activity
       setLastCursorActivity(Date.now());

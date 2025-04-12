@@ -423,7 +423,8 @@ export function ScriptEditor({ scriptId, initialViewMode = 'script', scriptState
     const newElement: ScriptElementType = {
       id: Math.random().toString(36).substr(2, 9),
       type,
-      content: ''
+      content: '',
+      componentId: ''
     };
     setElements(prev => {
       const index = prev.findIndex(el => el.id === afterId);
@@ -434,6 +435,21 @@ export function ScriptEditor({ scriptId, initialViewMode = 'script', scriptState
     return newElement.id;
   };
 
+  const handleNavigateElement = useCallback((currentId: string, direction: 'up' | 'down') => {
+    const currentIndex = elements.findIndex(el => el.id === currentId);
+    if (currentIndex === -1) return;
+
+    const targetIndex = direction === 'up' ? currentIndex - 1 : currentIndex + 1;
+
+    if (targetIndex >= 0 && targetIndex < elements.length) {
+      setSelectedElement(elements[targetIndex].id);
+      // Optional: Add a slight delay before focusing might help ensure state update
+      // setTimeout(() => {
+      //   elementRefs.current[elements[targetIndex].id]?.current?.focusEditorEnd(); // Or a more specific focus method if needed
+      // }, 10);
+    }
+  }, [elements]); // Add elements as a dependency
+
   const handleKeyDown = useCallback((
     e: React.KeyboardEvent,
     id: string,
@@ -441,18 +457,12 @@ export function ScriptEditor({ scriptId, initialViewMode = 'script', scriptState
     // Add options argument (make it optional)
     options?: { mergeUp?: boolean; isFirstElement?: boolean }
   ) => {
+    console.log('Parent handleKeyDown triggered:', e.key);
   
     const currentElement = elements.find(el => el.id === id);
     if (!currentElement) return;
     const currentIndex = elements.findIndex(el => el.id === id)
-    if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
-      e.preventDefault();
-      const targetIndex = e.key === 'ArrowUp' ? currentIndex - 1 : currentIndex + 1;
-      if (targetIndex >= 0 && targetIndex < elements.length) {
-        setSelectedElement(elements[targetIndex].id);
-      }
-      return;
-    }
+
     if (e.key === 'Backspace') {
       if (options?.mergeUp && currentIndex > 0) {
         console.log(`Handling mergeUp request for element ID: ${id}`);
@@ -536,7 +546,8 @@ export function ScriptEditor({ scriptId, initialViewMode = 'script', scriptState
         const newElement: ScriptElementType = {
           id: Math.random().toString(36).substr(2, 9),
           type: nextType,
-          content: splitData.afterContent.trim()
+          content: splitData.afterContent.trim(),
+          componentId: currentElement.componentId
         };
         updatedElements.splice(currentIndex + 1, 0, newElement);
         setElements(updatedElements);
@@ -872,7 +883,7 @@ Copyright: ${titlePage.copyright}
           setScriptMetadata({
               id: meta.id,
               title: meta.title || `Script ${scriptId.slice(0, 8)}`,
-              genre: meta.genre, // Make sure your interface/mapping includes genre
+              // genre: meta.genre, // Make sure your interface/mapping includes genre
               creationMethod: meta.creation_method,
               createdAt: meta.created_at,
               updatedAt: meta.updated_at,
@@ -1132,6 +1143,7 @@ Copyright: ${titlePage.copyright}
                         elementRef={elementRefs.current[element.id]}
                         onRequestExpansion={handleRequestExpansion}
                         componentId={element.componentId} // Pass the componentId
+                        onNavigateElement={handleNavigateElement}
                       />
                     </div>
                   ))}
