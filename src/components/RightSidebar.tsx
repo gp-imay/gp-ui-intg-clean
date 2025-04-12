@@ -61,14 +61,18 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({
     const expansionTypes = [
       { key: 'concise' as const, title: 'Concise Version' },
       { key: 'dramatic' as const, title: 'Dramatic Version' },
-      { key: 'minimal' as const, title: 'Minimal Version' },
-      { key: 'poetic' as const, title: 'Poetic Version' },
+      // { key: 'minimal' as const, title: 'Minimal Version' },
+      // { key: 'poetic' as const, title: 'Poetic Version' },
       { key: 'humorous' as const, title: 'Humorous Version' }
     ];
 
+
+    let displayText = "Expansion"
+    // if 
+
     return (
       <div className="p-4 space-y-2">
-        <h3 className="text-sm font-medium text-gray-700 mb-3">Expansion Options</h3>
+        <h3 className="text-sm font-medium text-gray-700 mb-3">{displayText} Options</h3>
         <div className="max-h-[calc(100vh-200px)] overflow-y-auto pr-1">
           {expansionTypes.map(({ key, title }) => (
             <ExpansionCard

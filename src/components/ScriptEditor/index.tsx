@@ -37,6 +37,8 @@ import {
   ScriptStateValues,
   AIActionType
 } from '../../types/screenplay';
+import { AccountSettingsModal } from '../Dashboard/AccountSettingsModal';
+import { useAuth } from '../../contexts/AuthContext';
 
 interface ScriptEditorProps {
   scriptId: string;
@@ -75,7 +77,7 @@ export function ScriptEditor({ scriptId, initialViewMode = 'script', scriptState
   const processedSceneIdsRef = useRef<Set<string>>(new Set());
   const [expansionResults, setExpansionResults] = useState<ExpandComponentResponse | null>(null);
   const [isLoadingExpansion, setIsLoadingExpansion] = useState(false);
-
+  const [showAccountSettingsModal, setShowAccountSettingsModal] = useState(false); 
 
 
   // Sidebar state preservation when switching views
@@ -113,7 +115,7 @@ export function ScriptEditor({ scriptId, initialViewMode = 'script', scriptState
 
   const previousElementsRef = useRef<ScriptElementType[]>([]);
   const loadedSegmentIdsRef = useRef<Set<string>>(new Set());
-
+  const { user } = useAuth(); 
 
 
   // Handle view mode changes
@@ -288,6 +290,14 @@ export function ScriptEditor({ scriptId, initialViewMode = 'script', scriptState
     // }
 
   };
+  const handleChangeDisplayName = () => {
+    showAlert('info', 'Change display name functionality coming soon.');
+  };
+
+  const handleChangeEmail = () => {
+    showAlert('info', 'Change email functionality coming soon.');
+  };
+
 
   // Generate next scene handler
   const handleGenerateNextScene = async () => {
@@ -911,6 +921,7 @@ Copyright: ${titlePage.copyright}
         setShowTitlePageModal={setShowTitlePageModal}
         handleExport={handleExport}
         openSettings={() => setShowSettingsModal(true)}
+        openAccountSettings={() => setShowAccountSettingsModal(true)}
         userProfiles={userProfiles}
         activeProfile={activeProfile}
         setActiveProfile={setActiveProfile}
@@ -1107,6 +1118,15 @@ Copyright: ${titlePage.copyright}
         suggestionsEnabled={suggestionsEnabled}
         setSuggestionsEnabled={setSuggestionsEnabled}
       />
+    <AccountSettingsModal
+      isOpen={showAccountSettingsModal}
+      onClose={() => setShowAccountSettingsModal(false)}
+      displayName={user?.user_metadata?.full_name || user?.email || 'User'}
+      email={user?.email || ''}
+      onChangeDisplayName={handleChangeDisplayName}
+      onChangeEmail={handleChangeEmail}
+    />
+
     </div>
   );
 }

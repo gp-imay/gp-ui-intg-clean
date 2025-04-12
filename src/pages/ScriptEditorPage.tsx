@@ -5,6 +5,9 @@ import { useScriptState } from '../hooks/useScriptState';
 import { ViewMode, ScriptMetadata,  } from '../types/screenplay';
 import { AlertProvider, useAlert } from '../components/Alert';
 import {api, ScriptMetadataResponse} from "../services/api";
+import { AccountSettingsModal } from '../components/Dashboard/AccountSettingsModal'; 
+import { useAuth } from '../contexts/AuthContext'; 
+
 
 /**
  * ScriptEditorPage component
@@ -21,8 +24,10 @@ function ScriptEditorPage() {
   const [error, setError] = useState<string | null>(null);
   const [scriptMetadata, setScriptMetadata] = useState<ScriptMetadata | null>(null);
   const [initialViewMode, setInitialViewMode] = useState<ViewMode>('script');
+  
   // const [beatsDisabled, setBeatsDisabled] = useState(false);
   const [beatsAvailable, setBeatsAvailable] = useState(true);
+  const { user } = useAuth(); 
 
   
   // Use refs to track loading state and prevent duplicate API calls
@@ -38,6 +43,15 @@ function ScriptEditorPage() {
       console.log(`Script state changed to: ${newState}`);
     }
   });
+
+  const handleChangeDisplayName = () => {
+    showAlert('info', 'Change display name functionality coming soon.');
+  };
+
+  const handleChangeEmail = () => {
+    showAlert('info', 'Change email functionality coming soon.');
+  };
+
   function mapApiResponseToScriptMetadata(response: ScriptMetadataResponse): ScriptMetadata {
     return {
       id: response.id,
