@@ -366,7 +366,9 @@ export const ScriptElement = forwardRef<ScriptElementRef, ScriptElementProps>((p
         if (event.key === 'ArrowUp' || event.key === 'ArrowDown') {
           const { empty, $head } = view.state.selection;
           const isAtTop = empty && $head.parentOffset <= 1; // Cursor at the beginning
-          const isAtBottom = empty && $head.parentOffset >= view.state.doc.content.size - 1; // Cursor at the end
+          // const isAtBottom = empty && $head.parentOffset >= view.state.doc.content.size - 1; // Cursor at the end
+          const isAtBottom = empty && view.endOfTextblock("down"); // <--- Use Tiptap's helper for bottom edge
+
 
           if (event.key === 'ArrowUp' && isAtTop) {
             console.log("At top edge, navigating UP");
@@ -386,7 +388,7 @@ export const ScriptElement = forwardRef<ScriptElementRef, ScriptElementProps>((p
           console.log("Not at edge, allowing default arrow behavior");
           return false;
         }
-        
+
         // Handle suggestion selection with Tab only (not Enter)
         if (showSuggestions && event.key === 'Tab' && !event.shiftKey) {
           if (suggestionsData.length > 0) {
