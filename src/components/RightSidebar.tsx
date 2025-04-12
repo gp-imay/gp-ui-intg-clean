@@ -4,6 +4,9 @@ import { ChevronRight, Sparkles, Maximize2, Minimize2, Wand2, MessageSquare, Tra
 import { ExpansionCard } from './ScriptEditor/ExpansionCard';
 import { ExpandComponentResponse } from '../services/api'; // Adjust import path
 
+import { DotLottieReact } from '@lottiefiles/dotlottie-react'; // Add this line
+// ... other imports
+
 
 interface RightSidebarProps {
   isOpen: boolean;
@@ -98,6 +101,9 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({
     }
   };
 
+  // Add this constant near the imports or inside the component
+const loadingAnimationUrl = "https://lottie.host/b818e33d-f404-4a91-97a9-29dfa2e6c466/Qh7e0EpkKH.json";
+
   return (
     <div className={`bg-white shadow-lg transition-all duration-300 overflow-hidden relative ${isOpen ? 'w-80' : 'w-0'
       }`}>
@@ -119,10 +125,17 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({
           </button>
         </div>
         <div className="flex-1 overflow-y-auto">
-        {isLoadingExpansion ? (
-            <div className="flex items-center justify-center h-40">
-              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500"></div>
-            </div>
+        {isLoadingExpansion ? ( // Check if AI expansion is loading
+      <div className="flex items-center justify-center h-40">
+          {/* Replace spinner with Lottie animation */}
+          <div className="w-20 h-20"> {/* Adjust size as needed */}
+              <DotLottieReact
+                  src={loadingAnimationUrl}
+                  loop
+                  autoplay
+              />
+          </div>
+      </div>
           ) : expansionResults ? (
             renderExpansionResults()
           ) : (

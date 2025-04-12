@@ -16,6 +16,7 @@ import { CommentTooltip } from './ScriptEditor/CommentTooltip';
 import { AIToolsPanel } from './ScriptEditor/AIToolsPanel';
 import { Sparkles } from 'lucide-react';
 import {useAlert} from './Alert';
+import { DotLottieReact } from '@lottiefiles/dotlottie-react'; // Add this line
 
 interface ToolbarPosition {
   top: number;
@@ -124,6 +125,8 @@ export const ScriptElement = forwardRef<ScriptElementRef, ScriptElementProps>((p
   const aiToolsPanelRef = useRef<HTMLDivElement>(null);
   const aiButtonRef = useRef<HTMLButtonElement>(null);
   const { showAlert } = useAlert();
+  // Add this constant near the imports or inside the component
+  const aiIconAnimationUrl = "https://lottie.host/94bb5e8e-9be7-4c12-90bd-8f8081f987d1/MDDARSwRqu.json";
   
 
   const {
@@ -835,10 +838,15 @@ export const ScriptElement = forwardRef<ScriptElementRef, ScriptElementProps>((p
                 toggleAIToolsPanel();
               }}
             >
-              <div className="ai-icon-container scale-75">
-                <div className="ai-icon-pulse"></div>
-                <Sparkles className="ai-icon-sparkle w-4 h-4" />
-              </div>
+           {/* Replace the container div and its contents with the Lottie component */}
+           <div className="w-8 h-8 [image-rendering:pixelated] [image-rendering:crisp-edges]"> {/* Add image-rendering styles */}
+               <DotLottieReact
+                  src={aiIconAnimationUrl}
+                   loop
+                   autoplay
+               />
+           </div>
+
             </button>
           </div>
         )}
