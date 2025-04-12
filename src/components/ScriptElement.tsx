@@ -1,5 +1,7 @@
 import React, { useRef, useEffect, useState, forwardRef, useImperativeHandle } from 'react';
-import { ElementType, getNextElementType, Comment, ElementFormat, SceneSuggestions, AIActionType } from '../types/screenplay';
+import { ScriptElement as ScriptElementTypeDefinition, ElementType, getNextElementType, Comment, ElementFormat, SceneSuggestions, AIActionType } from '../types/screenplay';
+// import { ScriptElement as ScriptElementTypeDefinition, ElementType, /* ... */ } from '../types/screenplay'; // Import added/updated
+
 import { useScriptSuggestions } from '../hooks/useScriptSuggestions';
 import { useEditor, EditorContent } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
@@ -57,7 +59,8 @@ interface ScriptElementProps {
   onTypeChange: (id: string, type: ElementType) => void;
   autoFocus?: boolean;
   onAIAssistClick?: () => void;
-  elements: { type: ElementType; content: string }[];
+  // elements: { type: ElementType; content: string }[];
+  elements: ScriptElementTypeDefinition[];
   onAddComment: (comment: Comment) => void;
   activeCommentId?: string | null;
   comments: Comment[];
@@ -71,6 +74,7 @@ interface ScriptElementProps {
 interface ScriptElementRef {
   containsCommentRange: (from: number, to: number) => boolean;
   focusCommentRange: (from: number, to: number) => void;
+  focusEditorEnd: () => void; 
 }
 
 export const ScriptElement = forwardRef<ScriptElementRef, ScriptElementProps>((props, ref) => {
@@ -430,26 +434,30 @@ export const ScriptElement = forwardRef<ScriptElementRef, ScriptElementProps>((p
         }
         
         if (event.key === 'Backspace') {
+          const { from, empty } = view.state.selection;
+          const isAtStart = empty && from <= 1;
           const isEmpty = view.state.doc.textContent === '';
-          const { from } = view.state.selection;
-          
-          if (isEmpty) {
-            event.preventDefault();
-            onKeyDown(event as any as React.KeyboardEvent, id);
-            return true;
-          }
-
-          if (from === 1) {
-            const prevChar = view.state.doc.textBetween(0, 1);
-            if (!prevChar) {
-              event.preventDefault();
-              onKeyDown(event as any as React.KeyboardEvent, id);
-              return true;
+    
+          // **** This line should now be valid ****
+          const elementIndex = elements.findIndex(el => el.id === id);
+          // **** ****
+    
+          if (isEmpty && isAtStart) {
+            if (elementIndex === 0) {
+               console.log(`Backspace on first empty element (ID: ${id}), using custom delete.`);
+               event.preventDefault();
+               onKeyDown(event as any as React.KeyboardEvent, id);
+               return true;
+            } else {
+                console.log(`Backspace on non-first empty element (ID: ${id}). Requesting MERGE UP.`);
+                onKeyDown(event as any as React.KeyboardEvent, id, undefined, { mergeUp: true }); // Signal merge intention
+        
+               return false; // Allow Tiptap's default merge behavior
             }
           }
-
           return false;
         }
+      
 
         if (event.key === 'Tab') {
           // Don't change element type on Tab, just move to next field
@@ -552,6 +560,14 @@ export const ScriptElement = forwardRef<ScriptElementRef, ScriptElementProps>((p
         return false;
       }
     },
+    focusEditorEnd: () => {
+      // Use setTimeout to ensure focus happens after state updates
+      setTimeout(() => {
+         editor?.chain().focus().setTextSelection(editor.state.doc.content.size).run();
+         setLastCursorActivity(Date.now()); // Update cursor activity tracking
+         setCursorBlinking(true);
+      }, 0);
+    },  
     focusCommentRange: (from: number, to: number) => {
       if (!editor) return;
       

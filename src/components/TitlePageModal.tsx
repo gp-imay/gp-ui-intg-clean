@@ -115,7 +115,7 @@ export const TitlePageModal: React.FC<TitlePageModalProps> = ({
             <div className="flex-grow"></div>
 
             {/* Contact Info */}
-            <div className="w-1/2"> {/* Constrain width */}
+            {/* <div className="w-1/2">
                 <textarea
                     value={titlePage.contact}
                     onChange={(e) => handleChange('contact', e.target.value)}
@@ -124,7 +124,7 @@ export const TitlePageModal: React.FC<TitlePageModalProps> = ({
                     rows={3} // Hint for initial height
                     style={{ minHeight: '4.5em' }} // Ensure space for 3 lines
                 />
-            </div>
+            </div> */}
         </div>
       </div>
     </div>

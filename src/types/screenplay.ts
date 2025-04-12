@@ -30,7 +30,7 @@ export interface ScriptElement {
   comments?: Comment[];
   sceneSegmentId?: string; // Added to track which scene segment this element belongs to
   position?: number;
-  componentId?: string; // Original backend component ID
+  componentId: string; // Original backend component ID
 }
 
 export interface ElementFormat {

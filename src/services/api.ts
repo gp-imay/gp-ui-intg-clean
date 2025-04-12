@@ -3,8 +3,9 @@ import { ApiBeat, GeneratedScenesResponse, Scenes } from '../types/beats';
 import { ScriptElement, ElementType, ScriptCreationMethod, ScriptMetadata } from '../types/screenplay';
 import { supabase } from '../lib/supabase';
 
-const API_BASE_URL = 'https://script-manager-api-dev.azurewebsites.net/api/v1';
+// const API_BASE_URL = 'https://script-manager-api-dev.azurewebsites.net/api/v1';
 // const API_BASE_URL = 'http://localhost:8000/api/v1';
+const API_BASE_URL = import.meta.env.VITE_API_URL;
 
 // Updated getToken function to use Supabase session
 const getToken = async () => {

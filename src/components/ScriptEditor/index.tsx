@@ -53,7 +53,7 @@ export function ScriptEditor({ scriptId, initialViewMode = 'script', scriptState
   const [title, setTitle] = useState('Untitled Screenplay');
   const navigate = useNavigate();
   const [elements, setElements] = useState<ScriptElementType[]>([
-    { id: '1', type: 'scene-heading', content: '' }
+    { id: '1', type: 'scene-heading', content: '', componentId: '79c8fb7a-94f1-4829-a98f-7f5739700249' }
   ]);
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
@@ -434,10 +434,17 @@ export function ScriptEditor({ scriptId, initialViewMode = 'script', scriptState
     return newElement.id;
   };
 
-  const handleKeyDown = useCallback((e: React.KeyboardEvent, id: string, splitData?: { beforeContent: string; afterContent: string }) => {
+  const handleKeyDown = useCallback((
+    e: React.KeyboardEvent,
+    id: string,
+    splitData?: { beforeContent: string; afterContent: string },
+    // Add options argument (make it optional)
+    options?: { mergeUp?: boolean; isFirstElement?: boolean }
+  ) => {
+  
     const currentElement = elements.find(el => el.id === id);
     if (!currentElement) return;
-    const currentIndex = elements.findIndex(el => el.id === id);
+    const currentIndex = elements.findIndex(el => el.id === id)
     if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
       e.preventDefault();
       const targetIndex = e.key === 'ArrowUp' ? currentIndex - 1 : currentIndex + 1;
@@ -447,34 +454,63 @@ export function ScriptEditor({ scriptId, initialViewMode = 'script', scriptState
       return;
     }
     if (e.key === 'Backspace') {
-      if (currentIndex > 0 && currentElement.content.trim() === '') {
-        e.preventDefault();
+      if (options?.mergeUp && currentIndex > 0) {
+        console.log(`Handling mergeUp request for element ID: ${id}`);
         const previousElement = elements[currentIndex - 1];
-
-        // Add tracking for deletion
-        deletedElementsRef.current.add(id);
-
-        // If deleting a scene heading, track segment deletion
+  
+        // 1. Track deletion for API save
+        deletedElementsRef.current.add(currentElement.componentId);
+        setHasUnsavedChanges(true); // Mark changes
+        // Optional: Track segment deletion if needed
         if (currentElement.type === 'scene-heading' && currentElement.sceneSegmentId) {
-          const segmentId = currentElement.sceneSegmentId;
-          deletedSegmentsRef.current.add(segmentId);
-
-          // Mark all elements in this segment for deletion tracking
-          elements.forEach(el => {
-            if (el.sceneSegmentId === segmentId) {
-              deletedElementsRef.current.add(el.id);
-            }
-          });
+           deletedSegmentsRef.current.add(currentElement.sceneSegmentId);
+           elements.forEach(el => {
+             if (el.sceneSegmentId === currentElement.sceneSegmentId) {
+               deletedElementsRef.current.add(el.id);
+             }
+           });
         }
-
-        // Mark as having unsaved changes
-        setHasUnsavedChanges(true);
-
-        // Existing deletion logic
+  
+        // 2. Remove the current (empty) element from state
         const updatedElements = elements.filter(el => el.id !== id);
         setElements(updatedElements);
+  
+        // 3. Set selected element state to the previous element
         setSelectedElement(previousElement.id);
-        return;
+  
+        // 4. Set focus and cursor to the END of the previous element
+        // Use requestAnimationFrame to ensure DOM is updated before focusing
+        requestAnimationFrame(() => {
+          const prevElementRef = elementRefs.current[previousElement.id];
+          prevElementRef?.current?.focusEditorEnd();
+        });
+  
+        return; // Merge handled
+      } else if (options?.isFirstElement) {
+         // Handle backspace on the *first* empty element (e.g., prevent deletion?)
+         console.log("Preventing deletion of the first empty element.");
+         // Optionally show an alert or just do nothing
+         // showAlert('info', 'Cannot delete the first element.');
+         return; // Prevent any further action
+      }
+      // If it wasn't a mergeUp or first element case, check for deleting non-empty elements at start (original logic)
+      // Note: The original logicmight need review depending on desired behavior for non-empty deletes.
+      // The image console log suggests this part might not be hit often if Tiptap handles internal deletes.
+      else if (currentIndex > 0 && currentElement.content.trim() === '') {
+           // This block might be redundant now due to the logic in ScriptElement,
+           // but keeping it as a fallback or for potential non-start backspace scenarios.
+           console.warn("ScriptEditor Backspace handler hit for empty element - review if needed.");
+           // Re-implement deletion tracking if needed here.
+           deletedElementsRef.current.add(currentElement.componentId);
+           setHasUnsavedChanges(true);
+           const updatedElements = elements.filter(el => el.id !== id);
+           setElements(updatedElements);
+           setSelectedElement(elements[currentIndex - 1].id);
+           // Focus logic might be needed here too
+           requestAnimationFrame(() => {
+              elementRefs.current[elements[currentIndex - 1].id]?.current?.focusEditorEnd();
+           });
+           return;
       }
     }
     if (e.key === 'Tab') {
