@@ -35,7 +35,8 @@ import {
   UserProfile,
   DEFAULT_USER_PROFILES,
   ScriptStateValues,
-  AIActionType
+  AIActionType,
+  ScriptMetadata
 } from '../../types/screenplay';
 import { AccountSettingsModal } from '../Dashboard/AccountSettingsModal';
 import { useAuth } from '../../contexts/AuthContext';
@@ -89,15 +90,25 @@ export function ScriptEditor({ scriptId, initialViewMode = 'script', scriptState
   const [viewMode, setViewMode] = useState<ViewMode>(initialViewMode);
   const [showTitlePageModal, setShowTitlePageModal] = useState(false);
   const [showSettingsModal, setShowSettingsModal] = useState(false);
+  // const [titlePage, setTitlePage] = useState<TitlePage>({
+  //   title: 'Untitled Screenplay',
+  //   author: '',
+  //   contact: '',
+  //   date: new Date().toLocaleDateString(),
+  //   draft: '1st Draft',
+  //   copyright: `Copyright © ${new Date().getFullYear()}`,
+  //   coverImage: ''
+  // });
   const [titlePage, setTitlePage] = useState<TitlePage>({
-    title: 'Untitled Screenplay',
-    author: '',
-    contact: '',
+    title: '', // Will be updated by useEffect below
+    author: '', // Will be updated by useEffect below
+    contact: '', // Keep existing default or load from user profile if available
     date: new Date().toLocaleDateString(),
-    draft: '1st Draft',
-    copyright: `Copyright © ${new Date().getFullYear()}`,
-    coverImage: ''
+   draft: '1st Draft',
+  copyright: `Copyright © ${new Date().getFullYear()}`,
+    // Remove date, draft, copyright - they aren't standard / editable here
   });
+  
   const [formatSettings, setFormatSettings] = useState<FormatSettings>(DEFAULT_FORMAT_SETTINGS);
   const [suggestions, setSuggestions] = useState<SceneSuggestions>(DEFAULT_SUGGESTIONS);
   const [userProfiles, setUserProfiles] = useState<UserProfile[]>(DEFAULT_USER_PROFILES);
@@ -112,6 +123,7 @@ export function ScriptEditor({ scriptId, initialViewMode = 'script', scriptState
   const contentRef = useRef<HTMLDivElement>(null);
   const elementRefs = useRef<{ [key: string]: React.RefObject<any> }>({});
   const [beatsAvailable, setBeatsAvailable] = useState(true);
+  const [scriptMetadata, setScriptMetadata] = useState<ScriptMetadata | null>(null);
 
   const previousElementsRef = useRef<ScriptElementType[]>([]);
   const loadedSegmentIdsRef = useRef<Set<string>>(new Set());
@@ -815,6 +827,40 @@ Copyright: ${titlePage.copyright}
       setIsRightSidebarOpen(false);
     }
   }, [suggestionsEnabled, isRightSidebarOpen]);
+  useEffect(() => {
+    const fetchMeta = async () => {
+      if (scriptId) {
+        try {
+          const meta = await api.getScriptMetadata(scriptId);
+          // Map response if needed (like in ScriptEditorPage)
+          setScriptMetadata({
+              id: meta.id,
+              title: meta.title || `Script ${scriptId.slice(0, 8)}`,
+              genre: meta.genre, // Make sure your interface/mapping includes genre
+              creationMethod: meta.creation_method,
+              createdAt: meta.created_at,
+              updatedAt: meta.updated_at,
+              isAiGenerated: meta.creation_method === 'WITH_AI',
+              // ... other fields if needed
+          });
+          setTitle(meta.title || `Script ${scriptId.slice(0, 8)}`); // Update main title state
+        } catch (err) {
+          console.error("Error fetching metadata in ScriptEditor:", err);
+          // Handle error appropriately
+        }
+      }
+    };
+    fetchMeta();
+  }, [scriptId, setTitle]);
+  useEffect(() => {
+    setTitlePage(prev => ({
+      ...prev, // Keep existing contact info
+      title: (scriptMetadata?.title || 'UNTITLED SCRIPT').toUpperCase(),
+      author: user?.user_metadata?.full_name || user?.email || '', // Use user's full name or email as author
+      // genre: scriptMetadata?.genre || '', // If you want to store genre, add it to TitlePage interface
+    }));
+  }, [scriptMetadata, user]);
+  
 
   const handleRetry = () => {
     setHasAttemptedLoad(false);

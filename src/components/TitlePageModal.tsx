@@ -1,24 +1,30 @@
 import React from 'react';
-import { X, Upload } from 'lucide-react';
+import { X } from 'lucide-react';
 
+// Interface defining the structure of title page data
 interface TitlePage {
   title: string;
   author: string;
   contact: string;
-  date: string;
-  draft: string;
-  copyright: string;
-  coverImage?: string;
 }
 
+// Interface defining the props expected by the TitlePageModal component
 interface TitlePageModalProps {
-  show: boolean;
-  onClose: () => void;
-  titlePage: TitlePage;
-  setTitlePage: (titlePage: TitlePage) => void;
-  setTitle: (title: string) => void;
+  show: boolean; // Controls modal visibility
+  onClose: () => void; // Function to close the modal
+  titlePage: TitlePage; // Current title page data
+  setTitlePage: (titlePage: TitlePage) => void; // Function to update title page state
+  setTitle: (title: string) => void; // Function to update the main script title state
 }
 
+// Base styles for editable fields to look somewhat like plain text
+const editableFieldStyles = `
+  font-courier text-[12pt] leading-normal
+  bg-transparent border-none focus:outline-none
+  hover:bg-gray-50 focus:bg-gray-50 rounded p-1 w-full
+`;
+
+// Functional component for the Title Page Modal
 export const TitlePageModal: React.FC<TitlePageModalProps> = ({
   show,
   onClose,
@@ -26,121 +32,99 @@ export const TitlePageModal: React.FC<TitlePageModalProps> = ({
   setTitlePage,
   setTitle
 }) => {
+  // Don't render the modal if 'show' prop is false
   if (!show) return null;
 
+  // Function to handle input changes and update the state
+  const handleChange = (field: keyof TitlePage, value: string) => {
+    // Enforce uppercase for title
+    const processedValue = field === 'title' ? value.toUpperCase() : value;
+    const updatedTitlePage = { ...titlePage, [field]: processedValue };
+    setTitlePage(updatedTitlePage);
+
+    // If the title field changed, also update the main script title
+    if (field === 'title') {
+      setTitle(processedValue);
+    }
+  };
+
+  // Prevent modal close when clicking inside content
+  const handleContentClick = (e: React.MouseEvent) => {
+    e.stopPropagation();
+  };
+
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-start justify-center z-50 p-4 overflow-y-auto">
+    // Modal backdrop and container
+    <div
+      className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4 overflow-y-auto"
+      onClick={onClose} // Close modal if backdrop is clicked
+    >
+      {/* Modal Content Area - Scaled Representation */}
       <div
-        className="my-8 bg-white rounded-lg shadow-xl w-[210mm] relative"
-        onClick={(e) => e.stopPropagation()}
+        className="bg-white rounded-lg shadow-xl w-full max-w-2xl aspect-[8.5/11] relative flex flex-col" // Responsive width, fixed aspect ratio
+        onClick={handleContentClick} // Prevent closing
       >
+        {/* Close button */}
         <button
           onClick={onClose}
-          className="sticky top-4 right-4 float-right text-gray-400 hover:text-gray-600 p-1.5 rounded-full hover:bg-gray-100 z-10"
+          className="absolute top-2 right-2 text-gray-400 hover:text-gray-600 p-1.5 rounded-full hover:bg-gray-100 z-10"
+          aria-label="Close Title Page"
         >
           <X className="h-4 w-4" />
         </button>
 
-        <div className="title-page p-12 space-y-12">
-          <div 
-            className={`flex flex-col items-center gap-8 ${
-              !titlePage.coverImage ? 'min-h-[100px]' : ''
-            }`}
-          >
-            {titlePage.coverImage ? (
-              <div className="relative group">
-                <img
-                  src={titlePage.coverImage}
-                  alt="Cover"
-                  className="max-w-full h-auto max-h-[297mm] rounded-lg shadow-md"
-                />
-                <button
-                  onClick={() => setTitlePage(prev => ({ ...prev, coverImage: '' }))}
-                  className="absolute top-2 right-2 bg-white rounded-full p-1.5 shadow-md opacity-0 group-hover:opacity-100 transition-opacity"
-                >
-                  <X className="w-4 h-4" />
-                </button>
-              </div>
-            ) : (
-              <div
-                className="w-full max-w-md h-40 border-2 border-dashed rounded-lg flex flex-col items-center justify-center gap-3 transition-colors border-gray-300 hover:border-gray-400"
-              >
-                <Upload className="w-8 h-8 text-gray-400" />
-                <div className="text-sm text-gray-500 text-center">
-                  <p>Drop your cover image here, or</p>
-                  <label className="text-blue-500 hover:text-blue-600 cursor-pointer">
-                    browse
-                    <input
-                      type="file"
-                      accept="image/*"
-                      className="hidden"
-                      onChange={(e) => {
-                        const file = e.target.files?.[0];
-                        if (file) {
-                          const reader = new FileReader();
-                          reader.onload = (e) => {
-                            const result = e.target?.result as string;
-                            setTitlePage(prev => ({ ...prev, coverImage: result }));
-                          };
-                          reader.readAsDataURL(file);
-                        }
-                      }}
-                    />
-                  </label>
-                </div>
-              </div>
-            )}
-            <input
-              type="text"
-              value={titlePage.title}
-              onChange={(e) => {
-                setTitlePage(prev => ({ ...prev, title: e.target.value }));
-                setTitle(e.target.value);
-              }}
-              className="w-full text-center text-3xl uppercase font-bold bg-transparent border-none focus:outline-none hover:bg-gray-50 p-3 rounded"
-              placeholder="TITLE"
-            />
-          </div>
+        {/* Simulated Page Content with Margins (using padding on an inner div) */}
+        <div
+            className="flex-grow p-[5%] sm:p-[7%] md:p-[10%] flex flex-col" // Use percentage padding for scaling margins
+            style={{ fontFamily: "'Courier Prime', monospace", fontSize: '12pt', lineHeight: '1.5' }}
+        >
+            {/* Spacer to push Title down */}
+            <div style={{ height: '25%' }}></div> {/* Approximate 1/4 page space */}
 
-          <div className="grid gap-8 max-w-xl mx-auto">
-            <input
-              type="text"
-              value={titlePage.author}
-              onChange={(e) => setTitlePage(prev => ({ ...prev, author: e.target.value }))}
-              className="text-center bg-transparent border-none focus:outline-none hover:bg-gray-50 p-2 rounded text-lg"
-              placeholder="written by"
-            />
-            <div className="grid grid-cols-2 gap-6">
-              <input
-                type="text"
-                value={titlePage.draft}
-                onChange={(e) => setTitlePage(prev => ({ ...prev, draft: e.target.value }))}
-                className="text-center bg-transparent border-none focus:outline-none hover:bg-gray-50 p-2 rounded"
-                placeholder="Draft Version"
-              />
-              <input
-                type="text"
-                value={titlePage.date}
-                onChange={(e) => setTitlePage(prev => ({ ...prev, date: e.target.value }))}
-                className="text-center bg-transparent border-none focus:outline-none hover:bg-gray-50 p-2 rounded"
-                placeholder="Date"
-              />
+            {/* Title */}
+            <div className="w-full mb-4">
+                <input
+                    type="text"
+                    value={titlePage.title}
+                    onChange={(e) => handleChange('title', e.target.value)}
+                    placeholder="SCREENPLAY TITLE"
+                    className={`${editableFieldStyles} text-center uppercase font-bold`}
+                />
             </div>
-            <input
-              type="text"
-              value={titlePage.contact}
-              onChange={(e) => setTitlePage(prev => ({ ...prev, contact: e.target.value }))}
-              className="text-center bg-transparent border-none focus:outline-none hover:bg-gray-50 p-2 rounded"
-              placeholder="Contact Information"
-            />
-            <input
-              type="text"
-              value={titlePage.copyright}
-              onChange={(e) => setTitlePage(prev => ({ ...prev, copyright: e.target.value }))}
-              className="text-center bg-transparent border-none focus:outline-none hover:bg-gray-50 p-2 rounded"
-              placeholder="Copyright"
-            />
-          </div>
+
+            {/* Spacer */}
+             <div style={{ height: '2em' }}></div> {/* Space below title */}
+
+            {/* Written by */}
+            <p className="text-center mb-2">
+              Written by
+            </p>
+
+            {/* Author */}
+            <div className="w-full mb-4">
+                <input
+                    type="text"
+                    value={titlePage.author}
+                    onChange={(e) => handleChange('author', e.target.value)}
+                    placeholder="Author Name"
+                    className={`${editableFieldStyles} text-center`}
+                />
+            </div>
+
+            {/* Spacer to push contact info down */}
+            <div className="flex-grow"></div>
+
+            {/* Contact Info */}
+            <div className="w-1/2"> {/* Constrain width */}
+                <textarea
+                    value={titlePage.contact}
+                    onChange={(e) => handleChange('contact', e.target.value)}
+                    placeholder={"Contact Information\nEmail Address\nPhone Number"}
+                    className={`${editableFieldStyles} text-left resize-none overflow-hidden h-auto`} // Auto height, no resize
+                    rows={3} // Hint for initial height
+                    style={{ minHeight: '4.5em' }} // Ensure space for 3 lines
+                />
+            </div>
         </div>
       </div>
     </div>
