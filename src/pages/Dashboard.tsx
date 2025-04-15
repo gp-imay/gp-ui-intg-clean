@@ -376,7 +376,7 @@ export function Dashboard() {
       <div className="w-64 bg-white border-r border-gray-200">
         <div className="flex items-center gap-2 px-6 py-4">
           <img 
-            src="https://framerusercontent.com/images/wlmLl0p0tfc5j0IhyhoO8krmeCM.png" 
+             src="https://gplogos.blob.core.windows.net/logos/gp_beta_logo.png" 
             alt="Grease Pencil" 
             className="h-8"
           />

@@ -4,6 +4,9 @@ import { X, Upload, Wand2, RefreshCw } from 'lucide-react';
 import { useClickOutside } from '../../hooks/useClickOutside';
 import { mockApi } from '../../services/mockApi';
 import { useAlert } from '../../components/Alert';
+import { DotLottieReact } from '@lottiefiles/dotlottie-react';
+
+// ... other imports
 
 interface NewScriptModalProps {
   isOpen: boolean;
@@ -28,6 +31,9 @@ export default function NewScriptModal({ isOpen, onClose, onScriptCreated }: New
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { showAlert } = useAlert();
   const navigate = useNavigate();
+  // Add this constant near the imports or inside the component
+const generatingBeatsAnimationUrl = "https://lottie.host/d1d949ce-806e-4e62-bf74-db0d357c5e35/ZyxwDGXbdZ.lottie";
+const creatingAiScriptAnimationUrl = "https://lottie.host/d1d949ce-806e-4e62-bf74-db0d357c5e35/ZyxwDGXbdZ.lottie"; // Use the correct URL
 
   useClickOutside(modalRef, onClose);
 
@@ -202,25 +208,29 @@ export default function NewScriptModal({ isOpen, onClose, onScriptCreated }: New
             className="relative w-full max-w-md transform overflow-hidden rounded-xl bg-white shadow-2xl transition-all"
           >
             <div className="p-8 text-center">
-              <div className="mx-auto mb-6 flex h-16 w-16 items-center justify-center rounded-full bg-blue-50">
-                <RefreshCw className="h-8 w-8 text-blue-600 animate-spin" />
+            <div className="mx-auto mb-6 flex h-20 w-20 items-center justify-center"> {/* Adjusted size for potentially larger Lottie */}
+                 <DotLottieReact
+                     src={creatingAiScriptAnimationUrl} // Use the correct variable defined earlier
+                     loop
+                     autoplay
+                 />
               </div>
               
               <h2 className="mb-2 text-xl font-semibold text-gray-900">
-                Generating Story Beats
+              Creating Your AI-Assisted Script...
               </h2>
               
               <p className="mb-6 text-gray-600">
-                The AI is creating story beats for your script. This might take a moment...
+              Processing the details and generating initial story beats. Please wait...
               </p>
               
-              <div className="mb-6 h-2 w-full overflow-hidden rounded-full bg-gray-200">
+              {/* <div className="mb-6 h-2 w-full overflow-hidden rounded-full bg-gray-200">
                 <div className="h-full animate-pulse rounded-full bg-blue-600 w-2/3"></div>
               </div>
               
               <p className="text-sm text-gray-500">
                 You'll be redirected to the script editor when it's ready
-              </p>
+              </p> */}
             </div>
           </div>
         </div>
