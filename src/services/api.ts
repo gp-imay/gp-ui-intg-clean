@@ -878,7 +878,8 @@ export const api = {
         return [];
       }
       // Ensure we have a reliable component ID
-      const componentId = component.id;
+      // const componentId = component.id; ### generate next scene api returns component as component.component_id so adding the below line
+      const componentId = component.id || component.component_id ;
 
       // Case 1: DIALOGUE with both character_name and parenthetical
       if (component.component_type === 'DIALOGUE' && component.character_name && component.parenthetical) {
