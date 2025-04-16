@@ -1,6 +1,6 @@
 // src/services/api.ts
 import { ApiBeat, GeneratedScenesResponse, Scenes } from '../types/beats';
-import { ScriptElement, ElementType, ScriptCreationMethod, ScriptMetadata } from '../types/screenplay';
+import { ScriptElement, ElementType, ScriptCreationMethod, ScriptMetadata, AIActionType } from '../types/screenplay';
 import { supabase } from '../lib/supabase';
 
 // const API_BASE_URL = 'https://script-manager-api-dev.azurewebsites.net/api/v1';
@@ -193,7 +193,33 @@ export interface ExpandComponentResponse {
   // poetic: ScriptExpansion;
   humorous: ScriptExpansion;
 }
+interface ApplyTransformPayload {
+  transform_type: AIActionType | ExpansionType; // Or define a more specific type if needed
+  alternative_text: string;
+}
 
+// Interface for the apply transform response component
+interface ApplyTransformResponseComponent {
+  content: string;
+  parenthetical: string | null;
+  updated_at: string;
+  deleted_at: string | null;
+  scene_segment_id: string;
+  component_type: keyof ComponentTypeAI;
+  position: number;
+  character_name: string | null;
+  created_at: string;
+  id: string; // Assuming backend sends 'id' here, adjust if it's 'component_id'
+  is_deleted: boolean;
+}
+
+// Interface for the full apply transform response
+interface ApplyTransformResponse {
+  component: ApplyTransformResponseComponent;
+  was_updated: boolean;
+  was_recorded: boolean;
+  message: string;
+}
 // export type ExpansionType = 'concise' | 'dramatic' | 'minimal' | 'poetic' | 'humorous';
 export type ExpansionType = 'concise' | 'dramatic'  | 'humorous';
 
@@ -857,6 +883,53 @@ export const api = {
       return normalizedResponse;
     } catch (error) {
       console.error('Failed to expand component:', error);
+      throw error;
+    }
+  },
+  async applyTransform(
+    componentId: string,
+    transformType: AIActionType | ExpansionType, // Use the type matching your API expectation
+    alternativeText: string
+  ): Promise<ApplyTransformResponse> {
+    try {
+      if (!componentId) {
+        throw new Error("Component ID is required to apply transform.");
+      }
+      const token = await getToken();
+      const payload: ApplyTransformPayload = {
+        transform_type: transformType,
+        alternative_text: alternativeText,
+      };
+
+      console.log(`Applying transform: ${transformType} to component ${componentId}`);
+      console.log("Payload:", payload); // Log payload for debugging
+
+      const response = await fetch(
+        `${API_BASE_URL}/scene-segments/components/${componentId}/apply-transform`,
+        {
+          method: 'POST',
+          headers: {
+            'accept': 'application/json',
+            'Authorization': `Bearer ${token}`,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify(payload)
+        }
+      );
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        console.error("Apply Transform API Error Response:", errorData); // Log error response
+        throw new Error(errorData.message || errorData.error || `Error ${response.status}: Failed to apply transform`);
+      }
+
+      const responseData: ApplyTransformResponse = await response.json();
+      console.log("Apply Transform API Success Response:", responseData); // Log success response
+      return responseData;
+
+    } catch (error) {
+      console.error('Failed to apply transform:', error);
+      // Re-throw the error to be caught by the caller
       throw error;
     }
   },

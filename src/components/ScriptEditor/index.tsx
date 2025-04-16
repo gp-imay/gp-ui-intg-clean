@@ -17,7 +17,7 @@ import { GenerateNextSceneButton } from '../GenerateNextSceneButton';
 import { api } from '../../services/api';
 import { useParams, useNavigate } from 'react-router-dom';
 
-import { ExpandComponentResponse } from '../../services/api';
+import { ExpandComponentResponse, ExpansionType } from '../../services/api';
 
 
 import {
@@ -80,6 +80,8 @@ export function ScriptEditor({ scriptId, initialViewMode = 'script', scriptState
   const [isLoadingExpansion, setIsLoadingExpansion] = useState(false);
   const [showAccountSettingsModal, setShowAccountSettingsModal] = useState(false); 
 
+  const [activeExpansionComponentId, setActiveExpansionComponentId] = useState<string | null>(null);
+  const [activeExpansionActionType, setActiveExpansionActionType] = useState<AIActionType | null>(null);
 
   // Sidebar state preservation when switching views
   const [previousSidebarStates, setPreviousSidebarStates] = useState<{
@@ -967,33 +969,101 @@ Copyright: ${titlePage.copyright}
     
     // Clear any previous results
     setExpansionResults(null);
+    setActiveExpansionComponentId(null); // Clear previous active component
+    setActiveExpansionActionType(null); // Clear previous action type
+
     
     console.log("010",actionType)
     if (actionType === "expand") {
       console.log("010",actionType)
       const results = await api.expandComponent(componentId);
       setExpansionResults(results);
+      setActiveExpansionComponentId(componentId); // Should be set here
+      setActiveExpansionActionType(actionType);   // Should be set here  
     }
 
     if (actionType === "shorten") {
       const results = await api.shortenComponent(componentId);
       setExpansionResults(results);
+      setActiveExpansionComponentId(componentId); // Should be set here
+      setActiveExpansionActionType(actionType);   // Should be set here
     }
 
     if (actionType === "continue") {
       console.log("11111", "aa",actionType)
       const results = await api.continueComponent(componentId);
       setExpansionResults(results);
+      setActiveExpansionComponentId(componentId); // Should be set here
+      setActiveExpansionActionType(actionType);   // Should be set here
     }
 
     if (actionType === "rewrite") {
       const results = await api.rewriteComponent(componentId);
       setExpansionResults(results);
+      setActiveExpansionComponentId(componentId); // Should be set here
+      setActiveExpansionActionType(actionType);   // Should be set here
     }
     
   } catch (error) {
     console.error('Failed to expand content:', error);
     showAlert('error', error instanceof Error ? error.message : 'Failed to expand text');
+  } finally {
+    setIsLoadingExpansion(false);
+  }
+};
+const handleApplyTransform = async (alternativeText: string, expansionKey: ExpansionType) => {
+  // expansionKey might be needed if API requires specific transform type like 'concise' instead of original action 'expand'
+  // Using activeExpansionActionType based on user's curl example for 'transform_type'
+
+  if (!activeExpansionComponentId || !activeExpansionActionType) {
+      showAlert('error', 'Cannot apply changes: No active transformation context.');
+      return;
+  }
+
+  console.log(`Applying transform ${activeExpansionActionType} to ${activeExpansionComponentId} with text:`, alternativeText);
+
+  try {
+    setIsLoadingExpansion(true); // Show loading indicator while applying
+
+    const response = await api.applyTransform(
+      activeExpansionComponentId,
+      activeExpansionActionType, // Using the original action type here based on curl example
+      alternativeText
+    );
+
+    if (response.component) {
+      // Update the specific element in the state
+      setElements(prevElements =>
+        prevElements.map(el => {
+          // Find the element matching the component ID from the response
+          if (el.componentId === response.component.id) {
+            console.log(`Updating element content for componentId: ${el.componentId}`);
+            // Create a new object with updated content
+            return {
+              ...el,
+              content: response.component.content || '' // Update content
+              // Potentially update type if component_type changed, though unlikely for transforms
+              // type: mapComponentTypeToElementType(response.component.component_type) || el.type,
+            };
+          }
+          return el; // Return unchanged elements
+        })
+      );
+
+      showAlert('success', response.message || 'Changes applied successfully!');
+
+      // Clear expansion state after applying
+      setExpansionResults(null);
+      setActiveExpansionComponentId(null);
+      setActiveExpansionActionType(null);
+      setIsRightSidebarOpen(false); // Optionally close sidebar
+
+    } else {
+      throw new Error('API response did not contain the updated component.');
+    }
+  } catch (error) {
+    console.error('Failed to apply transform:', error);
+    showAlert('error', error instanceof Error ? error.message : 'Failed to apply changes.');
   } finally {
     setIsLoadingExpansion(false);
   }
@@ -1186,6 +1256,10 @@ Copyright: ${titlePage.copyright}
             selectedElementId={selectedElement}
             expansionResults={expansionResults}
             isLoadingExpansion={isLoadingExpansion}
+            onApplyTransformRequest={handleApplyTransform} // Pass the new handler
+            activeExpansionComponentId={activeExpansionComponentId} // Pass the ID
+            activeExpansionActionType={activeExpansionActionType} // Pass the action type
+
           />
         )}
       </div>

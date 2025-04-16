@@ -5,6 +5,8 @@ import { ExpansionCard } from './ScriptEditor/ExpansionCard';
 import { ExpandComponentResponse } from '../services/api'; // Adjust import path
 
 import { DotLottieReact } from '@lottiefiles/dotlottie-react'; // Add this line
+import { ExpansionType } from '../services/api';
+import { AIActionType } from '../types/screenplay';
 // ... other imports
 
 
@@ -15,6 +17,10 @@ interface RightSidebarProps {
   selectedElementId?: string;
   expansionResults?: ExpandComponentResponse | null; // Add this prop
   isLoadingExpansion?: boolean; // Add this prop
+  onApplyTransformRequest: (alternativeText: string, expansionKey: ExpansionType) => void; // Handler from ScriptEditor
+  activeExpansionComponentId?: string | null; // Not directly needed here if handler closes over it
+  activeExpansionActionType?: AIActionType | null; // Not directly needed here if handler closes over it
+
 }
 
 
@@ -24,7 +30,8 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({
   onApplySuggestion,
   selectedElementId,
   expansionResults,
-  isLoadingExpansion = false
+  isLoadingExpansion = false,
+  onApplyTransformRequest
 }) => {
   const [suggestions, setSuggestions] = useState([
     {
@@ -69,6 +76,15 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({
       { key: 'humorous' as const, title: 'Humorous Version' }
     ];
 
+    const actionType = expansionResults?.original_text ? // Check if results exist
+    (expansionResults.concise ? 'Transformation' : // Infer based on available keys, placeholder logic
+     expansionResults.dramatic ? 'Transformation' :
+     expansionResults.humorous ? 'Transformation' : 'Options')
+    : 'Options'; // Fallback title
+
+    if (expansionTypes.length === 0) {
+      return <div className="p-4 text-sm text-gray-500">No alternative versions generated.</div>;
+  }
 
     let displayText = "Expansion"
     // if 
@@ -82,7 +98,7 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({
               key={key}
               title={title}
               expansion={expansionResults[key]}
-              onApply={(text) => onApplySuggestion?.(text)}
+              onApply={(text) => onApplyTransformRequest(text, key)}
             />
           ))}
         </div>

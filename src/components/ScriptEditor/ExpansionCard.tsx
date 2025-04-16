@@ -16,6 +16,13 @@ interface ExpansionCardProps {
 
 export function ExpansionCard({ title, expansion, onApply }: ExpansionCardProps) {
   const [isHovered, setIsHovered] = useState(false);
+
+  if (!expansion || typeof expansion.expanded_text !== 'string') {
+    // Optionally render nothing or a placeholder if expansion data is invalid
+    console.warn(`Invalid expansion data for card titled: "${title}"`, expansion);
+    return null;
+  }
+
   
   return (
     <div 
@@ -26,7 +33,7 @@ export function ExpansionCard({ title, expansion, onApply }: ExpansionCardProps)
       <div className="p-4">
         <div className="flex justify-between items-start mb-2">
           <h3 className="text-sm font-medium text-gray-800">{title}</h3>
-          {isHovered && (
+          {isHovered && expansion.expanded_text && (
             <button
               onClick={() => onApply(expansion.expanded_text)}
               className="px-3 py-1 text-xs bg-blue-600 text-white rounded hover:bg-blue-700 transition-colors"
