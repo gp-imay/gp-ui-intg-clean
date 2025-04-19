@@ -92,7 +92,8 @@ export function Header({
         <img
     src="https://gplogos.blob.core.windows.net/logos/gp_beta_logo.png" // The logo URL you provided
     alt="Grease Pencil"
-    className="h-5" // Adjust size as needed
+    className="h-7" // Adjust size as needed
+    onClick={handleNavigateToDashboard}
   />
   <Home className="h-5 w-5 text-gray-600 hover:text-blue-600 cursor-pointer transition-colors"
             onClick={handleNavigateToDashboard}

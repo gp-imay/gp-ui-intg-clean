@@ -1,192 +1,156 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { X, Upload, Wand2, RefreshCw } from 'lucide-react';
+import { X, Upload, Wand2, RefreshCw, FileText } from 'lucide-react'; // Added FileText
 import { useClickOutside } from '../../hooks/useClickOutside';
 import { mockApi } from '../../services/mockApi';
 import { useAlert } from '../../components/Alert';
 import { DotLottieReact } from '@lottiefiles/dotlottie-react';
 
-// ... other imports
-
+// Interface defining the props expected by the NewScriptModal component
 interface NewScriptModalProps {
-  isOpen: boolean;
-  onClose: () => void;
-  onScriptCreated?: () => void;
+  isOpen: boolean; // Controls modal visibility
+  onClose: () => void; // Function to close the modal
+  onScriptCreated?: () => void; // Optional callback after script creation
 }
 
+// Functional component for the New Script Modal
 export default function NewScriptModal({ isOpen, onClose, onScriptCreated }: NewScriptModalProps) {
+  // State variables for form inputs
   const [title, setTitle] = useState('');
   const [subtitle, setSubtitle] = useState('');
   const [genre, setGenre] = useState('');
   const [story, setStory] = useState('');
-  const [isDragging, setIsDragging] = useState(false);
+
+  // State variables for modal behavior and loading states
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [selectedFile, setSelectedFile] = useState<File | null>(null);
-  const [fileError, setFileError] = useState('');
-  const [useAI, setUseAI] = useState(false);
-  const [isGeneratingBeats, setIsGeneratingBeats] = useState(false);
-  const [newScriptId, setNewScriptId] = useState<string | null>(null);
+  const [submittingType, setSubmittingType] = useState<'ai' | 'blank' | null>(null); // Track which button is loading
+  const [isGeneratingBeats, setIsGeneratingBeats] = useState(false); // For AI loading animation after creation
+  const [newScriptId, setNewScriptId] = useState<string | null>(null); // Store ID of newly created script
+
+  // Refs for modal interaction
   const modalRef = useRef<HTMLDivElement>(null);
-  const createButtonRef = useRef<HTMLButtonElement>(null);
-  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Hooks for navigation and alerts
   const { showAlert } = useAlert();
   const navigate = useNavigate();
-  // Add this constant near the imports or inside the component
-const generatingBeatsAnimationUrl = "https://lottie.host/d1d949ce-806e-4e62-bf74-db0d357c5e35/ZyxwDGXbdZ.lottie";
-const creatingAiScriptAnimationUrl = "https://lottie.host/d1d949ce-806e-4e62-bf74-db0d357c5e35/ZyxwDGXbdZ.lottie"; // Use the correct URL
 
+  // Lottie animation URLs
+  const creatingAiScriptAnimationUrl = "https://lottie.host/d1d949ce-806e-4e62-bf74-db0d357c5e35/ZyxwDGXbdZ.lottie";
+
+  // Hook to handle clicks outside the modal
   useClickOutside(modalRef, onClose);
 
+  // Effect to handle Escape key press and body overflow
   useEffect(() => {
     const handleEscape = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
         onClose();
       }
     };
-
     if (isOpen) {
       document.addEventListener('keydown', handleEscape);
-      document.body.style.overflow = 'hidden';
+      document.body.style.overflow = 'hidden'; // Prevent background scroll when modal is open
     }
-
     return () => {
       document.removeEventListener('keydown', handleEscape);
-      document.body.style.overflow = 'unset';
+      document.body.style.overflow = 'unset'; // Restore background scroll on close
     };
   }, [isOpen, onClose]);
 
+  // Effect to reset form state when the modal opens
   useEffect(() => {
     if (isOpen) {
-      createButtonRef.current?.focus();
-      // Reset form when modal opens
       setTitle('');
       setSubtitle('');
       setGenre('');
       setStory('');
-      setSelectedFile(null);
-      setFileError('');
-      setUseAI(false);
       setIsGeneratingBeats(false);
       setNewScriptId(null);
+      setIsSubmitting(false);
+      setSubmittingType(null);
     }
   }, [isOpen]);
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    
-    if (!title.trim()) {
-      showAlert('error', 'Title is required');
-      return;
-    }
-  
+  // Combined handler for creating script (either blank or with AI)
+  const handleSubmit = async (e: React.MouseEvent<HTMLButtonElement>, withAI: boolean) => {
+    e.preventDefault(); // Prevent default button behavior
+
+    // Basic validation
+if (!title.trim() || !story.trim()) { // Check both title and story
+  let errorMessage = '';
+  if (!title.trim() && !story.trim()) {
+    errorMessage = 'Title and Story/Logline are required';
+  } else if (!title.trim()) {
+    errorMessage = 'Title is required';
+  } else {
+    errorMessage = 'Story/Logline is required';
+  }
+  showAlert('error', errorMessage);
+  return; // Stop submission if either is missing
+}
+
     try {
       setIsSubmitting(true);
-      
+      setSubmittingType(withAI ? 'ai' : 'blank'); // Indicate which button is processing
+
+      // Prepare data for API call
       const scriptData = {
         title: title.trim(),
         subtitle: subtitle.trim(),
         genre: genre.trim(),
         story: story.trim()
       };
-      
       let createdScript;
-      
-      if (useAI) {
-        // Call createAIScript for AI-assisted scripts
+
+      // Call the appropriate API function based on user choice
+      if (withAI) {
         console.log(`Creating script with AI assistance`);
+        // Assuming mockApi returns { script: Script, beats: Beat[] }
         const result = await mockApi.createAIScript(scriptData);
-        createdScript = result.script;
-        
-        // Store the beats in your app state if needed
-        // For example, if you're using storyStore:
-        // result.beats.forEach(beat => storyStore.addBeat(beat));
-        
-        console.log("Script created with beats:", result.beats);
+        createdScript = result.script; // The created script object
+        console.log("Script created with beats:", result.beats); // Log beats if needed
       } else {
-        // Call createScript for regular scripts
         console.log(`Creating script manually`);
+        // Assuming mockApi returns Script object
         createdScript = await mockApi.createScript(scriptData);
       }
-  
+
       console.log("Script created successfully:", createdScript);
-      
-      // Save the new script ID - make sure it's properly set
+
+      // Ensure script ID exists before proceeding
       if (!createdScript.id) {
         throw new Error('Created script is missing an ID');
       }
-      
-      setNewScriptId(createdScript.id);
-      
-      // Show success message
+
+      setNewScriptId(createdScript.id); // Store the new ID
       showAlert('success', 'Script created successfully!');
-      
-      // Call the onScriptCreated callback
-      onScriptCreated?.();
-      
-      // Handle UI logic based on script type
-      if (useAI) {
-        // AI script flow
-        setIsGeneratingBeats(true);
-        
-        // Simulate beat generation (in real implementation, this would happen on the server)
+      onScriptCreated?.(); // Call the callback if provided
+
+      // Handle post-creation flow based on type
+      if (withAI) {
+        setIsGeneratingBeats(true); // Show AI loading animation modal
+        // Simulate beat generation delay before navigating
         setTimeout(() => {
-          setIsGeneratingBeats(false);
-          
-          // Navigate to the script editor with the new script ID
-          onClose();
-          
-          // Navigate to beats view for AI scripts
+          setIsGeneratingBeats(false); // Hide loading animation
+          onClose(); // Close the creation modal
+          // Navigate to the editor in 'beats' view for AI scripts
           navigate(`/editor/${createdScript.id}?view=beats`);
-        }, 3000);
+        }, 2000); // Simulate 2 seconds delay
       } else {
-        // Regular script flow
+        // Regular script flow: close modal and navigate to editor
         onClose();
-        navigate(`/editor/${createdScript.id}`);
+        navigate(`/editor/${createdScript.id}`); // Navigate to default 'script' view
       }
     } catch (err: any) {
       console.error("Error creating script:", err);
       showAlert('error', err.message || 'Failed to create script');
+      // Reset loading state only on error, success handles it via navigation/loading animation
       setIsSubmitting(false);
+      setSubmittingType(null);
     }
   };
 
-  const handleDragOver = (e: React.DragEvent) => {
-    e.preventDefault();
-    setIsDragging(true);
-  };
-
-  const handleDragLeave = () => {
-    setIsDragging(false);
-  };
-
-  const handleDrop = (e: React.DragEvent) => {
-    e.preventDefault();
-    setIsDragging(false);
-    const files = Array.from(e.dataTransfer.files);
-    handleFileSelection(files);
-  };
-
-  const handleFileSelection = (files: File[]) => {
-    if (files.length === 0) return;
-
-    const file = files[0];
-    const extension = file.name.split('.').pop()?.toLowerCase();
-    
-    if (!['pdf', 'fdx'].includes(extension || '')) {
-      setFileError('This document is not supported, please delete and upload another file.');
-      setSelectedFile(file);
-      return;
-    }
-
-    setSelectedFile(file);
-    setFileError('');
-  };
-
-  const handleBrowseClick = () => {
-    fileInputRef.current?.click();
-  };
-
-  // Render a loading state if we're generating beats
+  // Render AI loading state if applicable
   if (isOpen && isGeneratingBeats && newScriptId) {
     return (
       <div
@@ -201,36 +165,25 @@ const creatingAiScriptAnimationUrl = "https://lottie.host/d1d949ce-806e-4e62-bf7
             className="fixed inset-0 bg-black bg-opacity-50 transition-opacity"
             aria-hidden="true"
           />
-
-          {/* Loading Modal */}
+          {/* Loading Modal Content */}
           <div
-            ref={modalRef}
+            ref={modalRef} // Ref is still needed for useClickOutside, though clicking outside is less likely here
             className="relative w-full max-w-md transform overflow-hidden rounded-xl bg-white shadow-2xl transition-all"
           >
             <div className="p-8 text-center">
-            <div className="mx-auto mb-6 flex h-20 w-20 items-center justify-center"> {/* Adjusted size for potentially larger Lottie */}
+              <div className="mx-auto mb-6 flex h-20 w-20 items-center justify-center">
                  <DotLottieReact
-                     src={creatingAiScriptAnimationUrl} // Use the correct variable defined earlier
+                     src={creatingAiScriptAnimationUrl}
                      loop
                      autoplay
                  />
               </div>
-              
               <h2 className="mb-2 text-xl font-semibold text-gray-900">
-              Creating Your AI-Assisted Script...
+                 Creating Your AI-Assisted Script...
               </h2>
-              
               <p className="mb-6 text-gray-600">
-              Processing the details and generating initial story beats. Please wait...
+                Processing the details and generating initial story beats. Please wait...
               </p>
-              
-              {/* <div className="mb-6 h-2 w-full overflow-hidden rounded-full bg-gray-200">
-                <div className="h-full animate-pulse rounded-full bg-blue-600 w-2/3"></div>
-              </div>
-              
-              <p className="text-sm text-gray-500">
-                You'll be redirected to the script editor when it's ready
-              </p> */}
             </div>
           </div>
         </div>
@@ -238,8 +191,10 @@ const creatingAiScriptAnimationUrl = "https://lottie.host/d1d949ce-806e-4e62-bf7
     );
   }
 
+  // Don't render the main modal if isOpen is false
   if (!isOpen) return null;
 
+  // Render the main New Script Modal
   return (
     <div
       className="fixed inset-0 z-50 overflow-y-auto"
@@ -254,11 +209,12 @@ const creatingAiScriptAnimationUrl = "https://lottie.host/d1d949ce-806e-4e62-bf7
           aria-hidden="true"
         />
 
-        {/* Modal */}
+        {/* Modal Container */}
         <div
           ref={modalRef}
           className="relative w-full max-w-2xl transform overflow-hidden rounded-xl bg-white shadow-2xl transition-all"
         >
+          {/* Close Button */}
           <div className="absolute right-4 top-4">
             <button
               onClick={onClose}
@@ -269,23 +225,26 @@ const creatingAiScriptAnimationUrl = "https://lottie.host/d1d949ce-806e-4e62-bf7
             </button>
           </div>
 
+          {/* Modal Header */}
           <div className="px-8 py-6">
             <h2 className="text-2xl font-bold text-gray-900" id="modal-title">
               New Script
             </h2>
             <p className="mt-2 text-sm text-gray-600">
-              You can always change this later, feel free to skip any fields
+              Fill in the details below, or start blank and add them later.
             </p>
           </div>
 
-          <form onSubmit={handleSubmit} className="px-8 pb-8">
+          {/* Form Content */}
+          <div className="px-8 pb-8">
             <div className="space-y-6">
+              {/* Title Input */}
               <div>
                 <label
                   htmlFor="title"
                   className="block text-sm font-medium text-gray-700"
                 >
-                  Title
+                  Title <span className="text-red-500">*</span> {/* Indicate required */}
                 </label>
                 <input
                   type="text"
@@ -294,15 +253,17 @@ const creatingAiScriptAnimationUrl = "https://lottie.host/d1d949ce-806e-4e62-bf7
                   onChange={(e) => setTitle(e.target.value)}
                   className="mt-2 block w-full rounded-[8px] border border-gray-300 px-4 py-2.5 focus:border-[#4B84F3] focus:outline-none"
                   placeholder="Enter script title"
+                  required // HTML required attribute
                 />
               </div>
 
+              {/* Subtitle Input */}
               <div>
                 <label
                   htmlFor="subtitle"
                   className="block text-sm font-medium text-gray-700"
                 >
-                  Subtitle
+                   Subtitle
                 </label>
                 <input
                   type="text"
@@ -314,6 +275,7 @@ const creatingAiScriptAnimationUrl = "https://lottie.host/d1d949ce-806e-4e62-bf7
                 />
               </div>
 
+              {/* Genre Input */}
               <div>
                 <label
                   htmlFor="genre"
@@ -327,137 +289,93 @@ const creatingAiScriptAnimationUrl = "https://lottie.host/d1d949ce-806e-4e62-bf7
                   value={genre}
                   onChange={(e) => setGenre(e.target.value)}
                   className="mt-2 block w-full rounded-[8px] border border-gray-300 px-4 py-2.5 focus:border-[#4B84F3] focus:outline-none"
-                  placeholder="Enter genre"
+                  placeholder="e.g., Sci-Fi, Comedy, Drama"
                 />
               </div>
 
+              {/* Story Input */}
               <div>
                 <label
                   htmlFor="story"
                   className="block text-sm font-medium text-gray-700"
                 >
-                  Story
+                  Story / Logline <span className="text-red-500">*</span> {/* Added asterisk */}
                 </label>
                 <textarea
                   id="story"
                   value={story}
                   onChange={(e) => setStory(e.target.value)}
-                  rows={6}
+                  rows={4}
                   className="mt-2 block w-full rounded-[8px] border border-gray-300 px-4 py-2.5 focus:border-[#4B84F3] focus:outline-none"
-                  placeholder="Enter your story"
+                  placeholder="Briefly describe your story (optional)"
                 />
               </div>
 
-              <div className="flex items-center justify-between">
-                <div className="flex items-center space-x-2">
-                  <button
-                    type="button"
-                    onClick={() => setUseAI(!useAI)}
-                    className={`relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
-                      useAI ? 'bg-[#4B84F3]' : 'bg-gray-200'
-                    }`}
-                    role="switch"
-                    aria-checked={useAI}
-                  >
-                    <span
-                      className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${
-                        useAI ? 'translate-x-5' : 'translate-x-0'
-                      }`}
-                    />
-                  </button>
-                  <div className="flex items-center space-x-2">
-                    <Wand2 className={`h-5 w-5 ${useAI ? 'text-[#4B84F3]' : 'text-gray-400'}`} />
-                    <span className="text-sm font-medium text-gray-700">AI Writing Assistant</span>
-                  </div>
-                </div>
-              </div>
+              {/* Buttons Section */}
+              <div className="pt-6">
+                 <p className="text-center text-sm font-medium text-gray-600 mb-4">How would you like to start?</p>
+                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
 
-              <button
-                ref={createButtonRef}
-                type="submit"
-                disabled={isSubmitting}
-                className="w-full rounded-[8px] bg-[#4B84F3] px-6 py-3 text-center text-sm font-medium text-white transition-colors hover:bg-[#3b6cd2] focus:outline-none disabled:opacity-50 flex items-center justify-center"
-              >
-                {isSubmitting ? (
-                  <>
-                    <RefreshCw className="mr-2 h-4 w-4 animate-spin" />
-                    Creating...
-                  </>
-                ) : (
-                  'Create New Script'
-                )}
-              </button>
-
-              {/* <div className="relative mt-8 text-center">
-                <div className="absolute inset-0 flex items-center">
-                  <div className="w-full border-t border-gray-200"></div>
-                </div>
-                <div className="relative">
-                  <span className="bg-white px-4 text-sm text-[#2D3748]">
-                    Import a script ?
-                  </span>
-                </div>
-              </div> */}
-
-              {/* <div className="mt-6">
-                <h3 className="text-2xl font-bold text-[#2D3748]">Import a script</h3>
-                <p className="mt-2 text-sm text-[#2D3748]">
-                  Please ensure that the screenplay is in the industry-standard format.
-                </p>
-
-                <div
-                  onClick={handleBrowseClick}
-                  onDragOver={handleDragOver}
-                  onDragLeave={handleDragLeave}
-                  onDrop={handleDrop}
-                  className={`mt-4 cursor-pointer rounded-[8px] border-2 border-dashed border-[#E2E8F0] bg-[#F8FAFC] px-6 py-8 text-center transition-colors ${
-                    isDragging ? 'border-[#4B84F3] bg-blue-50' : ''
-                  }`}
-                >
-                  <Upload className="mx-auto h-12 w-12 text-[#4B84F3]" />
-                  <p className="mt-4 text-sm text-[#2D3748]">
-                    Drag & drop files or{' '}
-                    <span className="font-medium text-[#4B84F3] hover:text-[#3b6cd2]">
-                      Browse
-                    </span>
-                  </p>
-                  <p className="mt-2 text-xs text-[#4A5568]">
-                    Supported formats: PDF, FDX
-                  </p>
-                </div>
-
-                {selectedFile && (
-                  <div className={`mt-4 flex items-center justify-between rounded-lg border ${fileError ? 'border-red-300 bg-red-50' : 'border-gray-200'} p-3`}>
-                    <span className="text-sm text-gray-600">{selectedFile.name}</span>
+                    {/* Start Blank Button */}
                     <button
-                      type="button"
-                      onClick={() => {
-                        setSelectedFile(null);
-                        setFileError('');
-                      }}
-                      className="ml-2 rounded-full p-1 text-gray-400 hover:bg-gray-100 hover:text-gray-500"
+                      type="button" // Use type="button" to prevent default form submission
+                      onClick={(e) => handleSubmit(e, false)} // Call handler with withAI=false
+                      disabled={isSubmitting} // Disable if any submission is in progress
+className={`flex flex-col items-center justify-center text-center p-6 border rounded-lg transition-all duration-200 hover:shadow-lg focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 ${ // Changed focus ring
+  isSubmitting && submittingType !== 'blank'
+    ? 'opacity-50 cursor-not-allowed bg-gray-100 border-gray-200' // Disabled state
+    : 'border-gray-300 bg-white text-gray-800 hover:bg-blue-50 hover:border-blue-400 hover:text-blue-800' // Normal state + Blue hover
+}`}
                     >
-                      <X className="h-4 w-4" />
+                      
+                      <div className="w-12 h-12 mb-2"> {/* Container to control size */}
+  <DotLottieReact
+    src="https://lottie.host/3c354c01-1c9b-4ad5-be05-ecb598d0ae65/T7RUoQXfCr.json" // Blank script animation URL
+    loop
+    autoplay
+  />
+</div>
+                      <span className="text-md font-semibold text-gray-800">Start Blank</span>
+                      <span className="text-xs text-gray-500 mt-1">Create a traditional screenplay from scratch.</span>
+                      {/* Show spinner only if this specific button is submitting */}
+                      {isSubmitting && submittingType === 'blank' && (
+                        <RefreshCw className="mt-3 h-4 w-4 animate-spin text-gray-600" />
+                      )}
                     </button>
-                  </div>
-                )}
 
-                {fileError && (
-                  <p className="mt-2 text-sm text-red-600">{fileError}</p>
-                )}
+                    {/* Start with AI Button */}
+                    <button
+                      type="button" // Use type="button"
+                      onClick={(e) => handleSubmit(e, true)} // Call handler with withAI=true
+                      disabled={isSubmitting} // Disable if any submission is in progress
+                      className={`flex flex-col items-center justify-center text-center p-6 border rounded-lg transition-all duration-200 hover:shadow-lg focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 ${
+                        isSubmitting && submittingType !== 'ai'
+                         ? 'opacity-50 cursor-not-allowed bg-gray-100 border-gray-200' // Disabled state
+                         : 'border-gray-300 bg-white text-gray-800 hover:bg-blue-50 hover:border-blue-400 hover:text-blue-800' // Normal state + Blue hover
+                     }`}
+                    >
+                      <div className="w-12 h-12 mb-2"> {/* Container to control size */}
+  <DotLottieReact
+    src="https://lottie.host/48d60e8f-25ce-4874-91b4-be3a55d98b20/ilGRvxsEC9.json" // AI animation URL
+    loop
+    autoplay
+  />
+</div>
+<span className="text-md font-semibold text-gray-800 group-hover:text-blue-800 transition-colors">Start with AI</span> {/* Default gray, blue on hover */}
+<span className="text-xs text-gray-500 group-hover:text-blue-600 mt-1 transition-colors">Generate story beats based on your inputs.</span> {/* Default gray, blue on hover */}
+                       {/* Show spinner only if this specific button is submitting */}
+                       {isSubmitting && submittingType === 'ai' && (
+                        <RefreshCw className="mt-3 h-4 w-4 animate-spin text-blue-700" />
+                       )}
+                    </button>
+                 </div>
+              </div>
+              {/* --- End Buttons Section --- */}
 
-                <input
-                  ref={fileInputRef}
-                  type="file"
-                  accept=".pdf,.fdx"
-                  className="hidden"
-                  onChange={(e) => handleFileSelection(Array.from(e.target.files || []))}
-                />
-              </div> */}
-            </div>
-          </form>
-        </div>
-      </div>
-    </div>
+            </div> {/* End space-y-6 */}
+          </div> {/* End Form Content (px-8 pb-8) */}
+        </div> {/* End Modal Container */}
+      </div> {/* End Flex Centering */}
+    </div> // End Fixed Container
   );
 }
