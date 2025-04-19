@@ -24,6 +24,7 @@ export interface Comment {
 }
 
 export interface ScriptElement {
+  segmentPosition?: number;
   id: string;            // Frontend ID for React keys
   type: ElementType;
   content: string;
@@ -31,6 +32,7 @@ export interface ScriptElement {
   sceneSegmentId?: string; // Added to track which scene segment this element belongs to
   position?: number;
   componentId: string; // Original backend component ID
+  isNew?: boolean;
 }
 
 export interface ElementFormat {
@@ -195,6 +197,74 @@ export interface SceneSuggestions {
     responses: string[];
     emotions: string[];
   };
+}
+
+export interface IdMappings {
+  segments: Record<string, string>; // Maps frontend temp ID to backend UUID
+  components: Record<string, string>; // Maps frontend temp ID to backend UUID
+}
+
+export interface ScriptChangesResponse {
+  success: boolean;
+  message: string;
+  updated_components: number;
+  deleted_components: number;
+  deleted_segments: number;
+  created_segments: number;
+  created_components: number;
+  idMappings: IdMappings;
+}
+
+export enum ComponentTypeFE {
+  HEADING = "HEADING",
+  ACTION = "ACTION",
+  DIALOGUE = "DIALOGUE",
+  CHARACTER = "CHARACTER",
+  TRANSITION = "TRANSITION",
+  PARENTHETICAL = "PARENTHETICAL"
+}
+
+// Define types for payload based on provided schema
+export interface ComponentChange {
+  id: string; // UUID4 in backend, string here
+  component_type: ComponentTypeFE;
+  position: number;
+  content: string;
+  character_name?: string;
+  parenthetical?: string;
+}
+
+export interface NewComponentForSegment {
+  component_type: ComponentTypeFE;
+  position: number;
+  content: string;
+  character_name?: string;
+  parenthetical?: string;
+  frontendId: string;
+}
+
+export interface NewSegment {
+  segmentNumber: number;
+  frontendId: string;
+  components: NewComponentForSegment[];
+}
+
+export interface NewComponentForExistingSegment {
+  segment_id: string; // UUID4 in backend, string here
+  component_type: ComponentTypeFE;
+  position: number;
+  content: string;
+  character_name?: string;
+  parenthetical?: string;
+  frontendId: string;
+}
+
+export interface ScriptChangesRequest {
+  changedSegments: Record<string, ComponentChange[]>;
+  deletedElements: string[]; // UUID4[] in backend
+  deletedSegments: string[]; // UUID4[] in backend
+  newSegments: NewSegment[];
+  newComponentsInExistingSegments: NewComponentForExistingSegment[];
 }
 
 // Default suggestions

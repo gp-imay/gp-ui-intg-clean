@@ -1,6 +1,6 @@
 // src/services/api.ts
 import { ApiBeat, GeneratedScenesResponse, Scenes } from '../types/beats';
-import { ScriptElement, ElementType, ScriptCreationMethod, ScriptMetadata, AIActionType } from '../types/screenplay';
+import { ScriptElement, ElementType, ScriptCreationMethod, ScriptMetadata, AIActionType, ScriptChangesRequest, ScriptChangesResponse } from '../types/screenplay';
 import { supabase } from '../lib/supabase';
 
 // const API_BASE_URL = 'https://script-manager-api-dev.azurewebsites.net/api/v1';
@@ -220,6 +220,14 @@ interface ApplyTransformResponse {
   was_recorded: boolean;
   message: string;
 }
+interface NextSegmentNumberResponse {
+  next_segment_number: number;
+}
+
+interface NextComponentPositionResponse {
+  next_component_position: number;
+}
+
 // export type ExpansionType = 'concise' | 'dramatic' | 'minimal' | 'poetic' | 'humorous';
 export type ExpansionType = 'concise' | 'dramatic'  | 'humorous';
 
@@ -235,6 +243,33 @@ function mapComponentTypeToElementType(componentType: keyof ComponentTypeAI): El
   return typeMap[componentType] || 'action';
 }
 
+// Helper function to map the API response to the frontend ScriptMetadata type
+export function mapApiResponseToScriptMetadata(response: ScriptMetadataResponse): ScriptMetadata {
+  if (!response) {
+      // Handle null or undefined input if necessary, maybe return a default or throw
+      console.error("Received null or undefined response in mapApiResponseToScriptMetadata");
+      // Returning a partial object or throwing might be appropriate depending on desired handling
+      return {
+           id: '',
+           title: 'Error: Missing Metadata',
+           creationMethod: 'FROM_SCRATCH', // Default or best guess
+           createdAt: new Date().toISOString(),
+           updatedAt: new Date().toISOString(),
+           isAiGenerated: false,
+      };
+  }
+  return {
+    id: response.id,
+    title: response.title || `Script ${response.id?.slice(0, 8) || 'Unknown'}`, // Provide default title
+    creationMethod: response.creation_method,
+    createdAt: response.created_at,
+    updatedAt: response.updated_at,
+    isAiGenerated: response.creation_method === 'WITH_AI', // Calculate boolean flag
+    isUploaded: response.creation_method === 'UPLOAD', // Calculate boolean flag
+    currentSceneSegmentId: response.current_scene_segment_id,
+    // uploadedFileType: response.creation_method === 'UPLOAD' ? 'pdf' : undefined // Adjust if backend provides specific type
+  };
+}
 // Generate a unique ID for components without an ID
 function generateUniqueId(prefix: string = 'comp'): string {
   return `${prefix}-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
@@ -251,6 +286,7 @@ function isSegmentDuplicate(segmentId: string, existingElements: ScriptElement[]
 }
 
 export const api = {
+  
   // NEW: Create a new script
   async createScript(payload: Omit<CreateScriptPayload, 'creation_method'>, creationMethod: ScriptCreationMethod = 'FROM_SCRATCH'): Promise<CreateScriptResponse> {
     try {
@@ -671,7 +707,7 @@ export const api = {
     }
   },
 
-  async saveScriptChanges(scriptId: string, changes: SaveChangesRequest): Promise<boolean> {
+  async saveScriptChangesOld(scriptId: string, changes: SaveChangesRequest): Promise<boolean> {
     try {
       console.log("logging changes : ",changes)
       const token = await getToken();
@@ -696,6 +732,61 @@ export const api = {
       return true;
     } catch (error) {
       return handleApiError(error, 'Failed to save script changes');
+    }
+  },
+  async saveScriptChanges(scriptId: string, changes: ScriptChangesRequest): Promise<ScriptChangesResponse> { // Return the full response
+    try {
+      console.log("Saving changes for script:", scriptId);
+      console.log("Payload:", JSON.stringify(changes, null, 2));
+      if (!scriptId) {
+         throw new Error("Script ID is missing for saving changes.");
+      }
+      const token = await getToken();
+      const response = await fetch(
+        `${API_BASE_URL}/scene-segments/${scriptId}/changes`, // Use the correct endpoint
+        {
+          method: 'PUT', // Use PUT or POST as appropriate for your backend
+          headers: {
+            'accept': 'application/json',
+            'Authorization': `Bearer ${token}`,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify(changes)
+        }
+      );
+
+      const responseData = await response.json();
+
+      if (!response.ok) {
+        // Attempt to get more specific error message
+        const errorMessage = responseData?.message || responseData?.detail || `Failed to save: ${response.status} ${response.statusText}`;
+        console.error("Save API Error Response:", responseData);
+        throw new Error(errorMessage);
+      }
+
+      console.log("Save API Success Response:", responseData);
+      if (!responseData.success) {
+           throw new Error(responseData.message || 'Backend reported failure but returned 2xx status.');
+      }
+
+       // Ensure idMappings exists, even if empty
+       if (!responseData.idMappings) {
+         responseData.idMappings = { segments: {}, components: {} };
+       }
+       if (!responseData.idMappings.segments) responseData.idMappings.segments = {};
+       if (!responseData.idMappings.components) responseData.idMappings.components = {};
+
+
+      return responseData; // Return the full response data including mappings
+
+    } catch (error) {
+      console.error("Error in saveScriptChanges:", error);
+      // Ensure a consistent error format is thrown
+       if (error instanceof Error) {
+            throw error; // Re-throw existing Error objects
+       } else {
+            throw new Error('An unexpected error occurred while saving script changes.'); // Create a new Error for other cases
+       }
     }
   },
   async  expandComponent(componentId: string): Promise<ExpandComponentResponse> {
@@ -934,7 +1025,78 @@ export const api = {
     }
   },
 
+  async getNextSegmentNumber(scriptId: string): Promise<number> {
+    if (!scriptId) {
+      throw new Error("Script ID is required to get the next segment number.");
+    }
+    try {
+      const token = await getToken();
+      const response = await fetch(
+        `${API_BASE_URL}/scene-segments/script/${scriptId}/next-segment-number`,
+        {
+          method: 'GET', // Assuming GET request
+          headers: {
+            'accept': 'application/json',
+            'Authorization': `Bearer ${token}`
+          }
+        }
+      );
 
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.message || `Failed to get next segment number: ${response.status}`);
+      }
+      const data: NextSegmentNumberResponse = await response.json();
+      return data.next_segment_number;
+    } catch (error) {
+       console.error("Error fetching next segment number:", error);
+       // Provide a fallback or rethrow a specific error
+       // Returning a timestamp-based fallback for now, but ideally, handle the error upstream
+       // throw error; // Or rethrow if the caller should handle it
+       return Date.now(); // Fallback position calculation
+    }
+  },
+
+  async getNextComponentPosition(segmentId: string): Promise<number> {
+     if (!segmentId) {
+       throw new Error("Segment ID is required to get the next component position.");
+     }
+     // IMPORTANT: If the segmentId is temporary, we cannot call the backend API.
+     // We need a local strategy for positioning within new, unsaved segments.
+     if (segmentId.startsWith('temp-seg-')) {
+         console.warn(`Cannot fetch position for temporary segment ID: ${segmentId}. Using local calculation.`);
+         // Implement local calculation (e.g., find max position in elements with this temp segmentId + 1000)
+         // For simplicity, returning a timestamp-based fallback here.
+         return Date.now();
+     }
+
+    try {
+      const token = await getToken();
+      const response = await fetch(
+        `${API_BASE_URL}/scene-segments/${segmentId}/next-component-position`,
+        {
+          method: 'GET', // Assuming GET request
+          headers: {
+            'accept': 'application/json',
+            'Authorization': `Bearer ${token}`
+          }
+        }
+      );
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.message || `Failed to get next component position: ${response.status}`);
+      }
+      const data: NextComponentPositionResponse = await response.json();
+      return data.next_component_position;
+    } catch (error) {
+       console.error(`Error fetching next component position for segment ${segmentId}:`, error);
+       // Provide a fallback or rethrow a specific error
+       // Returning a timestamp-based fallback for now, but ideally, handle the error upstream
+       // throw error; // Or rethrow if the caller should handle it
+       return Date.now(); // Fallback position calculation
+    }
+  },
 
   // Convert API scene components to script elements
   convertSceneComponentsToElements(components: AISceneComponent[]): ScriptElement[] {
@@ -1147,5 +1309,5 @@ export const api = {
     } catch (error) {
       return handleApiError(error, 'Failed to determine script state');
     }
-  }
+  },
 };

@@ -14,7 +14,7 @@ import { SettingsModal } from '../Settings';
 import { BeatSheetView } from '../BeatSheet/BeatSheetView';
 import { AlertProvider, useAlert } from '../Alert';
 import { GenerateNextSceneButton } from '../GenerateNextSceneButton';
-import { api } from '../../services/api';
+import { api, mapApiResponseToScriptMetadata } from '../../services/api';
 import { useParams, useNavigate } from 'react-router-dom';
 
 import { ExpandComponentResponse, ExpansionType } from '../../services/api';
@@ -36,7 +36,10 @@ import {
   DEFAULT_USER_PROFILES,
   ScriptStateValues,
   AIActionType,
-  ScriptMetadata
+  ScriptMetadata,
+  NewSegment,
+  ComponentTypeFE,
+  ScriptChangesRequest
 } from '../../types/screenplay';
 import { AccountSettingsModal } from '../Dashboard/AccountSettingsModal';
 import { useAuth } from '../../contexts/AuthContext';
@@ -51,16 +54,25 @@ export function ScriptEditor({ scriptId, initialViewMode = 'script', scriptState
   // This ref helps us prevent multiple API calls for the same script ID
   const loadedScriptIdRef = useRef<string | null>(null);
   const [title, setTitle] = useState('Untitled Screenplay');
-  const navigate = useNavigate();
+  // const navigate = useNavigate();
   const [elements, setElements] = useState<ScriptElementType[]>([
-    { id: '1', type: 'scene-heading', content: '', componentId: '79c8fb7a-94f1-4829-a98f-7f5739700249' }
+    { id: '1', type: 'scene-heading', content: '', componentId: '79c8fb7a-94f1-4829-a98f-7f5739700249', segmentPosition: 100999 }
   ]);
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
+  const [saveCycle, setSaveCycle] = useState(0); // Add this state
   const [selectedElement, setSelectedElement] = useState('1');
+  const initialElementsRef = useRef<ScriptElementType[]>([]);
+// Store the mapping from frontend ID to backend ID after save
+  // const idMappingsRef = useRef<{ segments: Record<string, string>, components: Record<string, string> }>({ segments: {}, components: {} });
+
   const modifiedElementsRef = useRef(new Set<string>());
   const deletedElementsRef = useRef(new Set<string>());
   const deletedSegmentsRef = useRef(new Set<string>());
+
+  const modifiedComponentIdsRef = useRef(new Set<string>());
+const deletedComponentIdsRef = useRef(new Set<string>());
+const deletedSegmentIdsRef = useRef(new Set<string>());
 
   // Sidebar state preservation when switching views
   const [isLeftSidebarOpen, setIsLeftSidebarOpen] = useState(true);
@@ -131,6 +143,21 @@ export function ScriptEditor({ scriptId, initialViewMode = 'script', scriptState
   const loadedSegmentIdsRef = useRef<Set<string>>(new Set());
   const { user } = useAuth(); 
 
+  const generateTemporaryId = (prefix: 'el' | 'seg'): string => {
+    return `temp-${prefix}-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
+  };
+  const isTemporaryId = (id: string | undefined): boolean => {
+    return !!id && id.startsWith('temp-');
+};
+
+useEffect(() => {
+  initialElementsRef.current = JSON.parse(JSON.stringify(elements)); // Deep copy
+  // Clear modification tracking after load/save
+  modifiedComponentIdsRef.current.clear();
+  deletedComponentIdsRef.current.clear();
+  deletedSegmentIdsRef.current.clear();
+  setHasUnsavedChanges(false);
+}, [isLoadingScript, saveCycle]);
 
   // Handle view mode changes
   const handleViewModeChange = (mode: ViewMode) => {
@@ -186,47 +213,76 @@ export function ScriptEditor({ scriptId, initialViewMode = 'script', scriptState
 
   // Fetch script metadata when the component mounts
   useEffect(() => {
-    // Skip if we've already attempted to load or scriptId is missing or already loaded this specific script
     if (!scriptId || hasAttemptedLoad || loadedScriptIdRef.current === scriptId) {
-      setIsLoadingScript(false);
-      return;
+        // If already loaded or no scriptId, set loading to false if it wasn't already
+        if(isLoadingScript) setIsLoadingScript(false);
+        return;
     }
-
-    // Remember this script ID to prevent duplicate loads
     loadedScriptIdRef.current = scriptId;
 
-    async function fetchScriptMetadata() {
+    async function initializeEditor() { // Renamed for clarity
+      setIsLoadingScript(true);
+      setLoadError(null);
       try {
-        setIsLoadingScript(true);
-        setLoadError(null);
-
-        // Get script metadata first to set title and other properties
         const metadata = await api.getScriptMetadata(scriptId);
         setTitle(metadata.title || `Script ${scriptId.slice(0, 8)}`);
+        setScriptMetadata(mapApiResponseToScriptMetadata(metadata)); // Assuming this helper exists
 
-        // Update first scene completion status based on metadata
-        if (scriptState.context.scenesCount > 0) {
-          setHasCompletedFirstScene(true);
-          setActiveTab('scenes');
-        } else if (scriptState.context.creationMethod === 'WITH_AI' && scriptState.context.hasBeats) {
-          // If it's an AI script with beats but no scenes, we should be ready to generate the first scene
-          console.log('AI script with beats but no scenes - ready for first scene generation');
+        // Check if script content already exists (e.g., from backend segments)
+        const initialSegments = await api.getScriptSegments(scriptId, 0, 1); // Check if any segments exist
+
+        if (initialSegments && initialSegments.segments.length > 0) {
+            // If content exists, let ScriptContentLoader handle loading it
+            console.log("Existing script content found, letting ScriptContentLoader handle loading.");
+             // Ensure elements state is empty so loader fetches
+            setElements([]);
+        }
+        // --- Handle FROM_SCRATCH Initialization ---
+        else if (metadata.creation_method === 'FROM_SCRATCH') {
+            console.log("Initializing FROM_SCRATCH script with default heading.");
+            // Fetch the starting segment number
+            const startSegmentNumber = await api.getNextSegmentNumber(scriptId);
+            const tempSegId = generateTemporaryId('seg');
+            const tempCompId = generateTemporaryId('el');
+
+            const initialElement: ScriptElementType = {
+                id: tempCompId, // Use temp ID for React key too
+                type: 'scene-heading',
+                content: '', // Start empty
+                componentId: tempCompId, // Temporary component ID
+                sceneSegmentId: tempSegId, // Temporary segment ID
+                segmentPosition: startSegmentNumber, // Fetched position
+                position: 1000, // Default component position for first element
+                isNew: true
+            };
+            setElements([initialElement]); // Set the initial state
+             // Manually set the initial ref baseline after setting state
+            initialElementsRef.current = JSON.parse(JSON.stringify([initialElement]));
+        }
+        // --- End FROM_SCRATCH Handling ---
+        else {
+             // For WITH_AI or UPLOAD with no segments yet, start empty and let loader/beats view handle it
+             setElements([]);
+             console.log("Script method is not FROM_SCRATCH and no segments found, starting empty.");
         }
 
-        // Note: We don't load script segments here anymore - that's handled by ScriptContentLoader
+         // Update completion status etc. based on metadata/context
+        if (scriptState.context.scenesCount > 0) { /* ... */ }
 
       } catch (error) {
-        console.error('Failed to fetch script metadata:', error);
+        console.error('Failed to initialize script editor:', error);
         setLoadError(error instanceof Error ? error.message : 'Failed to load script');
         showAlert('error', error instanceof Error ? error.message : 'Failed to load script');
+        setElements([]); // Ensure elements is empty on error
       } finally {
         setIsLoadingScript(false);
         setHasAttemptedLoad(true);
       }
     }
-    fetchScriptMetadata();
-  }, [scriptId, showAlert, hasAttemptedLoad, scriptState.context.scenesCount, scriptState.context.creationMethod, scriptState.context.hasBeats]);
-
+    initializeEditor();
+// Removed scriptState dependencies to prevent re-running on minor state changes
+// }, [scriptId, showAlert, hasAttemptedLoad, scriptState.context.scenesCount, scriptState.context.creationMethod, scriptState.context.hasBeats]);
+}, [scriptId, showAlert, hasAttemptedLoad]); // Depend only on scriptId and flags controlling the load itself
   // Handle generated script elements from the BeatSheetView
   const handleGeneratedScriptElements = (generatedElements: ScriptElementType[], sceneSegmentId: string) => {
     // Save the scene segment ID
@@ -421,21 +477,72 @@ export function ScriptEditor({ scriptId, initialViewMode = 'script', scriptState
       .trim();
   };
 
-  const createNewElement = (type: ElementType, afterId: string) => {
+  const createNewElement = useCallback(async (type: ElementType, afterId: string): Promise<string> => {
+    const afterElementIndex = elements.findIndex(el => el.id === afterId);
+    const afterElement = afterElementIndex >= 0 ? elements[afterElementIndex] : null;
+    const currentSegmentId = afterElement?.sceneSegmentId; // Get segment ID from the element it follows
+
+    const newFrontendId = generateTemporaryId('el');
+    let newSegmentId = currentSegmentId;
+    let segmentNumber: number | undefined = undefined; // Use segmentNumber for API consistency
+    let componentPosition: number | undefined = undefined;
+
+    try {
+        // If creating a scene heading, it starts a new segment - get next segment number
+        if (type === 'scene-heading') {
+            newSegmentId = generateTemporaryId('seg');
+            segmentNumber = await api.getNextSegmentNumber(scriptId); // Fetch segment number
+            // Component position within a new segment usually starts at a default (e.g., 1000)
+            componentPosition = 1000; // Or fetch if API supports it for new segments?
+            console.log(`Fetched next segment number: ${segmentNumber}`);
+        }
+        // Otherwise, get next component position within the current segment
+        else {
+            if (!currentSegmentId) {
+                console.error("Cannot determine current segment ID to fetch next component position.");
+                // Fallback: Use local calculation based on previous element or timestamp
+                componentPosition = (afterElement?.position ?? 0) + 1000;
+            } else {
+                // This will use local calculation if currentSegmentId is temporary
+                componentPosition = await api.getNextComponentPosition(currentSegmentId);
+                console.log(`Fetched next component position for segment ${currentSegmentId}: ${componentPosition}`);
+            }
+        }
+    } catch (error) {
+        showAlert('error', `Failed to get next position: ${error instanceof Error ? error.message : 'Unknown error'}`);
+        // Fallback to local calculation on API error
+        if (type === 'scene-heading') {
+            segmentNumber = (afterElement?.segmentPosition ?? Date.now()); // Fallback
+            componentPosition = 1000; // Fallback
+        } else {
+            componentPosition = (afterElement?.position ?? 0) + 1000; // Fallback
+        }
+        console.error("Falling back to local position calculation due to API error.");
+    }
+
+
     const newElement: ScriptElementType = {
-      id: Math.random().toString(36).substr(2, 9),
-      type,
-      content: '',
-      componentId: ''
+        id: newFrontendId, // Frontend unique key
+        componentId: newFrontendId, // Temporary ID for backend linking
+        type,
+        content: '',
+        sceneSegmentId: newSegmentId, // Can be temp or existing backend ID
+        position: componentPosition, // Use fetched or fallback position
+        segmentPosition: segmentNumber || 100999, // Use fetched or fallback segment number (only for headings)
+        isNew: true // Flag to indicate this hasn't been saved
     };
+
     setElements(prev => {
-      const index = prev.findIndex(el => el.id === afterId);
-      const newElements = [...prev];
-      newElements.splice(index + 1, 0, newElement);
-      return newElements;
+        // Find index again in case state changed during async operation
+        const currentAfterIndex = prev.findIndex(el => el.id === afterId);
+        const newElements = [...prev];
+        newElements.splice(currentAfterIndex + 1, 0, newElement);
+        // NOTE: Consider if full re-sorting/re-positioning is needed after adding
+        return newElements;
     });
-    return newElement.id;
-  };
+    setHasUnsavedChanges(true);
+    return newElement.id; // Return frontend ID
+}, [elements, scriptId, showAlert, setElements, setHasUnsavedChanges]); 
 
   const handleNavigateElement = useCallback((currentId: string, direction: 'up' | 'down') => {
     const currentIndex = elements.findIndex(el => el.id === currentId);
@@ -452,135 +559,202 @@ export function ScriptEditor({ scriptId, initialViewMode = 'script', scriptState
     }
   }, [elements]); // Add elements as a dependency
 
-  const handleKeyDown = useCallback((
-    e: React.KeyboardEvent,
-    id: string,
-    splitData?: { beforeContent: string; afterContent: string },
-    // Add options argument (make it optional)
-    options?: { mergeUp?: boolean; isFirstElement?: boolean }
-  ) => {
-    console.log('Parent handleKeyDown triggered:', e.key);
-  
-    const currentElement = elements.find(el => el.id === id);
-    if (!currentElement) return;
-    const currentIndex = elements.findIndex(el => el.id === id)
-
-    if (e.key === 'Backspace') {
-      if (options?.mergeUp && currentIndex > 0) {
-        console.log(`Handling mergeUp request for element ID: ${id}`);
-        const previousElement = elements[currentIndex - 1];
-  
-        // 1. Track deletion for API save
-        deletedElementsRef.current.add(currentElement.componentId);
-        setHasUnsavedChanges(true); // Mark changes
-        // Optional: Track segment deletion if needed
-        if (currentElement.type === 'scene-heading' && currentElement.sceneSegmentId) {
-           deletedSegmentsRef.current.add(currentElement.sceneSegmentId);
-           elements.forEach(el => {
-             if (el.sceneSegmentId === currentElement.sceneSegmentId) {
-               deletedElementsRef.current.add(el.id);
-             }
-           });
-        }
-  
-        // 2. Remove the current (empty) element from state
-        const updatedElements = elements.filter(el => el.id !== id);
-        setElements(updatedElements);
-  
-        // 3. Set selected element state to the previous element
-        setSelectedElement(previousElement.id);
-  
-        // 4. Set focus and cursor to the END of the previous element
-        // Use requestAnimationFrame to ensure DOM is updated before focusing
-        requestAnimationFrame(() => {
-          const prevElementRef = elementRefs.current[previousElement.id];
-          prevElementRef?.current?.focusEditorEnd();
-        });
-  
-        return; // Merge handled
-      } else if (options?.isFirstElement) {
-         // Handle backspace on the *first* empty element (e.g., prevent deletion?)
-         console.log("Preventing deletion of the first empty element.");
-         // Optionally show an alert or just do nothing
-         // showAlert('info', 'Cannot delete the first element.');
-         return; // Prevent any further action
-      }
-      // If it wasn't a mergeUp or first element case, check for deleting non-empty elements at start (original logic)
-      // Note: The original logicmight need review depending on desired behavior for non-empty deletes.
-      // The image console log suggests this part might not be hit often if Tiptap handles internal deletes.
-      else if (currentIndex > 0 && currentElement.content.trim() === '') {
-           // This block might be redundant now due to the logic in ScriptElement,
-           // but keeping it as a fallback or for potential non-start backspace scenarios.
-           console.warn("ScriptEditor Backspace handler hit for empty element - review if needed.");
-           // Re-implement deletion tracking if needed here.
-           deletedElementsRef.current.add(currentElement.componentId);
-           setHasUnsavedChanges(true);
-           const updatedElements = elements.filter(el => el.id !== id);
-           setElements(updatedElements);
-           setSelectedElement(elements[currentIndex - 1].id);
-           // Focus logic might be needed here too
-           requestAnimationFrame(() => {
-              elementRefs.current[elements[currentIndex - 1].id]?.current?.focusEditorEnd();
-           });
-           return;
-      }
-    }
-    if (e.key === 'Tab') {
-      e.preventDefault();
-      const nextType = getNextElementType(currentElement.type);
-      const newId = createNewElement(nextType, id);
-      setSelectedElement(newId);
-    } else if (e.key === 'Enter') {
-      e.preventDefault();
-      if (currentElement.type === 'scene-heading' &&
-        currentElement.content.trim() !== '' &&
-        !hasCompletedFirstScene) {
-        setHasCompletedFirstScene(true);
-        setActiveTab('scenes');
-      }
-      if (splitData) {
-        const updatedElements = [...elements];
-        updatedElements[currentIndex] = {
-          ...currentElement,
-          content: splitData.beforeContent.trim()
-        };
-        const nextType = currentElement.type === 'action' ? 'action' : getNextElementType(currentElement.type);
-        const newElement: ScriptElementType = {
-          id: Math.random().toString(36).substr(2, 9),
-          type: nextType,
-          content: splitData.afterContent.trim(),
-          componentId: currentElement.componentId
-        };
-        updatedElements.splice(currentIndex + 1, 0, newElement);
-        setElements(updatedElements);
-        setSelectedElement(newElement.id);
-      } else {
-        const nextType = currentElement.type === 'action' ? 'action' : getNextElementType(currentElement.type);
-        const newId = createNewElement(nextType, id);
-        setSelectedElement(newId);
-      }
-    }
-  }, [elements, hasCompletedFirstScene]);
 
   const handleElementChange = (id: string, content: string) => {
-    setElements(prev => prev.map(el =>
-      el.id === id ? { ...el, content } : el
-    ));
-    modifiedElementsRef.current.add(id);
+    setElements(prev =>
+        prev.map(el => {
+            if (el.id === id) {
+                // If it's an existing element (has a non-temporary componentId), mark it as modified
+                if (!isTemporaryId(el.componentId) && el.componentId) {
+                     modifiedComponentIdsRef.current.add(el.componentId);
+                }
+                return { ...el, content };
+            }
+            return el;
+        })
+    );
     setHasUnsavedChanges(true);
-  };
+};
 
-  const mapElementTypeToComponentType = (elementType: ElementType): string => {
-    switch (elementType) {
-      case 'scene-heading': return 'HEADING';
-      case 'action': return 'ACTION';
-      case 'character': return 'CHARACTER';
-      case 'dialogue': return 'DIALOGUE';
-      case 'parenthetical': return 'PARENTHETICAL';
-      case 'transition': return 'TRANSITION';
-      default: return 'ACTION';
-    }
-  };
+const handleKeyDown = useCallback(async ( // Make the handler async
+  event: React.KeyboardEvent, // The original React KeyboardEvent
+  id: string, // Frontend ID of the element where the event occurred
+  splitData?: { beforeContent: string; afterContent: string }, // Data if Enter caused a split
+  options?: { mergeUp?: boolean; isFirstElement?: boolean } // Options passed from child (e.g., for Backspace handling)
+) => {
+  console.log(`ScriptEditor handleKeyDown received: Key='${event.key}', ID='${id}', Options=`, options);
+
+  const currentIndex = elements.findIndex(el => el.id === id);
+  if (currentIndex === -1) {
+      console.error(`Element with id ${id} not found in handleKeyDown`);
+      return;
+  }
+  const currentElement = elements[currentIndex];
+
+  // --- Enter Key Handling ---
+  if (event.key === 'Enter' && !event.shiftKey) {
+      // Prevent default is handled in child, but double-check if needed
+      // event.preventDefault();
+
+      // Specific logic for completing the first scene heading
+      if (currentElement.type === 'scene-heading' && stripHtml(currentElement.content).trim() !== '' && !hasCompletedFirstScene) {
+          setHasCompletedFirstScene(true);
+          setActiveTab('scenes'); // Assuming setActiveTab is defined
+      }
+
+      if (splitData) {
+          // Update the current element with the content before the split
+          // Use functional update to ensure we work with the latest state
+          let newElementId: string | null = null; // To store the ID after creation
+          setElements(prevElements => {
+              const updatedElements = [...prevElements];
+              const currentIdx = updatedElements.findIndex(el => el.id === id);
+              if (currentIdx === -1) return prevElements; // Element might have been deleted
+
+              const elementToUpdate = updatedElements[currentIdx];
+              const updatedCurrentElement = {
+                  ...elementToUpdate,
+                  content: splitData.beforeContent
+              };
+              updatedElements[currentIdx] = updatedCurrentElement;
+
+               // If the original element was existing, mark it as modified
+               if (!isTemporaryId(updatedCurrentElement.componentId) && updatedCurrentElement.componentId) {
+                  modifiedComponentIdsRef.current.add(updatedCurrentElement.componentId);
+               }
+               return updatedElements; // Return state without the new element yet
+          });
+
+          // Determine the type of the new element AFTER updating the current one
+          const nextType = currentElement.type === 'action' ? 'action' : getNextElementType(currentElement.type);
+
+          // ----> AWAIT the creation of the new element <----
+          newElementId = await createNewElement(nextType, id);
+
+          // ----> Update the content of the newly created element <----
+          // Use functional update again to ensure we target the correct element array
+          setElements(prevElements => {
+               const finalElements = [...prevElements];
+               const finalNewElementIndex = finalElements.findIndex(el => el.id === newElementId);
+               if(finalNewElementIndex !== -1) {
+                   finalElements[finalNewElementIndex] = {
+                       ...finalElements[finalNewElementIndex],
+                       content: splitData.afterContent // Set content for the new element
+                   };
+               } else {
+                    console.error("Could not find newly created element after async creation!");
+               }
+               return finalElements;
+           });
+
+           if (newElementId) {
+              setSelectedElement(newElementId);
+           } else {
+                console.error("Failed to get ID for the new element after split!");
+                // Fallback? Maybe create a synchronous non-API positioned element?
+           }
+
+      } else {
+          // Regular Enter: Create a new element of the next type
+          const nextType = currentElement.type === 'action' ? 'action' : getNextElementType(currentElement.type);
+           // ----> AWAIT the creation <----
+          const newId = await createNewElement(nextType, id);
+          setSelectedElement(newId);
+      }
+      setHasUnsavedChanges(true);
+      // Assuming resetSuggestions() is defined and necessary
+      // resetSuggestions();
+  }
+
+  // --- Backspace Key Handling (Merge Up / Delete Empty) ---
+  // This relies on the child ScriptElement detecting the empty+start condition and calling this parent handler
+  else if (event.key === 'Backspace' && options) { // Check for options passed from child
+       event.preventDefault(); // Prevent double handling
+
+       if (options.mergeUp && currentIndex > 0) {
+          console.log(`Handling mergeUp request for element ID: ${id}`);
+          const previousElement = elements[currentIndex - 1];
+
+          // 1. Track deletion for API save IF it's an existing element from backend
+          if (!isTemporaryId(currentElement.componentId) && currentElement.componentId) {
+              deletedComponentIdsRef.current.add(currentElement.componentId);
+              setHasUnsavedChanges(true);
+              // Track segment deletion if it was a non-temporary scene heading
+              if (currentElement.type === 'scene-heading' && !isTemporaryId(currentElement.sceneSegmentId) && currentElement.sceneSegmentId) {
+                  deletedSegmentIdsRef.current.add(currentElement.sceneSegmentId);
+              }
+          } // Don't track deletion if it was only a temporary element
+
+          // 2. Remove the current (empty) element from state
+          setElements(prev => prev.filter(el => el.id !== id));
+
+          // 3. Set selected element state to the previous element
+          setSelectedElement(previousElement.id);
+
+          // 4. Set focus and cursor to the END of the previous element
+          requestAnimationFrame(() => {
+               const prevElementRef = elementRefs.current[previousElement.id];
+               prevElementRef?.current?.focusEditorEnd(); // Ensure ScriptElement exposes focusEditorEnd via useImperativeHandle
+          });
+
+       } else if (options.isFirstElement) {
+           // Handle backspace on the *first* empty element (prevent deletion)
+           console.log("Preventing deletion of the first empty element.");
+           // Optionally show an alert
+           // showAlert('info', 'Cannot delete the first element.');
+       } else {
+          // This case might be less common if the child handles most Backspace scenarios internally
+          console.warn("Parent Backspace handler called without specific options (mergeUp/isFirstElement). Review logic if needed.");
+           // Fallback deletion logic (similar to mergeUp, but without merging focus)
+          if (currentIndex > 0 && currentElement.content.trim() === '') {
+               if (!isTemporaryId(currentElement.componentId) && currentElement.componentId) {
+                   deletedComponentIdsRef.current.add(currentElement.componentId);
+                   if (currentElement.type === 'scene-heading' && !isTemporaryId(currentElement.sceneSegmentId) && currentElement.sceneSegmentId) {
+                       deletedSegmentIdsRef.current.add(currentElement.sceneSegmentId);
+                   }
+                   setHasUnsavedChanges(true);
+               }
+               setElements(prev => prev.filter(el => el.id !== id));
+               setSelectedElement(elements[currentIndex - 1].id); // Select previous
+               requestAnimationFrame(() => {
+                   elementRefs.current[elements[currentIndex - 1].id]?.current?.focusEditorEnd();
+               });
+          }
+       }
+  }
+
+  // --- Tab Key Handling ---
+  else if (event.key === 'Tab' && !event.shiftKey && !event.ctrlKey && !event.metaKey) {
+      // Prevent default browser tab behavior
+      event.preventDefault();
+
+      // Determine the next logical element type
+      const nextType = getNextElementType(currentElement.type);
+
+      // ----> AWAIT the creation <----
+      const newId = await createNewElement(nextType, id);
+
+      // Select the newly created element
+      setSelectedElement(newId);
+      setHasUnsavedChanges(true);
+  }
+
+  // Add other key handling logic as needed
+
+}, [elements, hasCompletedFirstScene, createNewElement, setSelectedElement, setHasUnsavedChanges, setActiveTab, getNextElementType, isTemporaryId, modifiedComponentIdsRef, deletedComponentIdsRef, deletedSegmentIdsRef, elementRefs, scriptId]); // Added scriptId because createNewElement uses it
+
+const mapElementTypeToComponentType = (elementType: ElementType): ComponentTypeFE => {
+  switch (elementType) {
+    case 'scene-heading': return ComponentTypeFE.HEADING;
+    case 'action': return ComponentTypeFE.ACTION;
+    case 'character': return ComponentTypeFE.CHARACTER;
+    case 'dialogue': return ComponentTypeFE.DIALOGUE;
+    case 'parenthetical': return ComponentTypeFE.PARENTHETICAL;
+    case 'transition': return ComponentTypeFE.TRANSITION;
+    default: return ComponentTypeFE.ACTION; // Or throw error
+  }
+};
+
   const stripHtml = (html: string): string => {
     // Remove HTML tags
     let text = html.replace(/<[^>]+>/g, '');
@@ -594,7 +768,7 @@ export function ScriptEditor({ scriptId, initialViewMode = 'script', scriptState
   };
 
 
-  const handleSave = async () => {
+  const handleSaveOld = async () => {
     if (!scriptId) {
       showAlert('error', 'Script ID is missing');
       return;
@@ -640,12 +814,13 @@ export function ScriptEditor({ scriptId, initialViewMode = 'script', scriptState
       const deletedSegmentIds = Array.from(deletedSegmentsRef.current);
 
       // Call API to save changes
-      const success = await api.saveScriptChanges(scriptId, {
-        changedSegments,
-        deletedElements: deletedIds,
-        deletedSegments: deletedSegmentIds
+      // const success = await api.saveScriptChanges(scriptId, {
+      //   changedSegments,
+      //   deletedElements: deletedIds,
+      //   deletedSegments: deletedSegmentIds
 
-      });
+      // });
+      const success = true
 
       if (success) {
         // Reset tracking
@@ -662,21 +837,249 @@ export function ScriptEditor({ scriptId, initialViewMode = 'script', scriptState
       setIsSaving(false);
     }
   };
+  const generateSavePayload = (): ScriptChangesRequest => {
+    const payload: ScriptChangesRequest = {
+        changedSegments: {},
+        deletedElements: Array.from(deletedComponentIdsRef.current),
+        deletedSegments: Array.from(deletedSegmentIdsRef.current),
+        newSegments: [],
+        newComponentsInExistingSegments: []
+    };
 
+    const currentSegments = new Map<string, ScriptElementType[]>(); // Group elements by segmentId (temp or real)
 
-  const handleTypeChange = (id: string, type: ElementType) => {
-    setElements(prev => {
-      // Track special case: scene heading changes
-      const element = prev.find(el => el.id === id);
-      if (element && (element.type === 'scene-heading' || type === 'scene-heading')) {
-        // Scene segment structure might need updates
-        console.log(`Scene heading changed: ${element.type} -> ${type}`);
-      }
-      return prev.map(el => el.id === id ? { ...el, type } : el);
+    // 1. Group elements by their segment ID
+    elements.forEach(el => {
+        const segId = el.sceneSegmentId || `no-segment-${el.id}`; // Handle elements potentially missing segmentId
+        if (!currentSegments.has(segId)) {
+            currentSegments.set(segId, []);
+        }
+        currentSegments.get(segId)!.push(el);
     });
-    modifiedElementsRef.current.add(id);
-    setHasUnsavedChanges(true);
+
+    // 2. Iterate through the grouped segments
+    currentSegments.forEach((segmentElements, segmentId) => {
+        // Ensure elements within a segment are sorted by position
+        segmentElements.sort((a, b) => (a.position ?? 0) - (b.position ?? 0));
+
+        // Case A: New Segment (temporary segment ID)
+        if (isTemporaryId(segmentId)) {
+          const newSegment: NewSegment = {
+            frontendId: segmentId,
+            // Use segmentPosition from the element (fetched/fallback from createNewElement)
+            segmentNumber: segmentElements[0]?.segmentPosition ?? Date.now(), // RENAME HERE
+            components: segmentElements.map(el => ({
+                frontendId: el.componentId,
+                component_type: mapElementTypeToComponentType(el.type),
+                position: el.position ?? Date.now(), // Use fetched/fallback position
+                content: stripHtml(el.content),
+    
+                    character_name: el.type === 'character' || el.type === 'dialogue' ? stripHtml(el.content) : undefined, // Adjust based on actual parsing
+                    parenthetical: el.type === 'parenthetical' ? stripHtml(el.content.replace(/^\(|\)$/g, '')) : undefined,
+                }))
+            };
+            payload.newSegments.push(newSegment);
+        }
+        // Case B: Existing Segment (backend UUID segment ID)
+        else {
+            segmentElements.forEach(el => {
+                // B.1: New component added to this existing segment?
+                if (isTemporaryId(el.componentId)) {
+                  console.log('Adding to newComponentsInExistingSegments:', JSON.stringify({
+                    el_id: el.id, // Log frontend key
+                    el_componentId: el.componentId, // Log the value being assigned
+                    el_type: el.type,
+                    el_content_snippet: stripHtml(el.content).substring(0, 20), // Log snippet
+                    segment_id: segmentId
+                }, null, 2));
+            
+                      payload.newComponentsInExistingSegments.push({
+                        frontendId: el.componentId ,
+                        segment_id: segmentId,
+                        component_type: mapElementTypeToComponentType(el.type),
+                        position: el.position ?? Date.now(), // Use fetched/fallback position
+                        content: stripHtml(el.content),
+                            character_name: el.type === 'character' || el.type === 'dialogue' ? stripHtml(el.content) : undefined, // Adjust parsing
+                         parenthetical: el.type === 'parenthetical' ? stripHtml(el.content.replace(/^\(|\)$/g, '')) : undefined,
+                     });
+                }
+                // B.2: Existing component modified?
+                else if (modifiedComponentIdsRef.current.has(el.componentId)) {
+                    if (!payload.changedSegments[segmentId]) {
+                        payload.changedSegments[segmentId] = [];
+                    }
+                    payload.changedSegments[segmentId].push({
+                        id: el.componentId, // Backend Component ID
+                        component_type: mapElementTypeToComponentType(el.type),
+                        position: el.position ?? 0,
+                        content: stripHtml(el.content),
+                        character_name: el.type === 'character' || el.type === 'dialogue' ? stripHtml(el.content) : undefined, // Adjust parsing
+                        parenthetical: el.type === 'parenthetical' ? stripHtml(el.content.replace(/^\(|\)$/g, '')) : undefined,
+                    });
+                }
+            });
+        }
+    });
+
+    // Ensure deleted elements/segments that were *only* temporary are not included
+    payload.deletedElements = payload.deletedElements.filter(id => !isTemporaryId(id));
+    payload.deletedSegments = payload.deletedSegments.filter(id => !isTemporaryId(id));
+
+
+    console.log("Generated Save Payload:", JSON.stringify(payload, null, 2)); // For debugging
+    return payload;
+};
+
+  const handleSave = async () => {
+    // ... (checks for scriptId, hasUnsavedChanges) ...
+    setIsSaving(true);
+    try {
+      const payload = generateSavePayload();
+      // ... (check if payload is empty) ...
+
+      const response = await api.saveScriptChanges(scriptId, payload);
+
+      if (response.success) {
+        // Update elements state with new IDs from response.idMappings
+        setElements(prevElements => {
+             const newElements = prevElements.map(el => {
+                 let updatedEl = { ...el };
+                 // Update segment ID if it was temporary
+                 if (isTemporaryId(el.sceneSegmentId) && response.idMappings.segments[el.sceneSegmentId!]) {
+                     updatedEl.sceneSegmentId = response.idMappings.segments[el.sceneSegmentId!];
+                 }
+                 // Update component ID if it was temporary
+                 if (isTemporaryId(el.componentId) && response.idMappings.components[el.componentId]) {
+                     updatedEl.componentId = response.idMappings.components[el.componentId];
+                 }
+                 // Reset the isNew flag if it existed
+                 delete updatedEl.isNew;
+                 return updatedEl;
+             });
+             // Don't update initialElementsRef here, let the useEffect handle it
+             return newElements;
+         });
+
+
+        // Reset tracking states IMMEDIATELY (before triggering the effect)
+        // Although the effect will also clear them, doing it here ensures
+        // the state is clean before any potential rapid subsequent actions.
+        modifiedComponentIdsRef.current.clear();
+        deletedComponentIdsRef.current.clear();
+        deletedSegmentIdsRef.current.clear();
+        setHasUnsavedChanges(false); // Reset unsaved changes flag
+
+        showAlert('success', response.message || 'Script saved successfully!');
+        console.log('Save successful:', response);
+
+        // ----> Increment saveCycle AFTER all state updates <----
+        setSaveCycle(prev => prev + 1);
+
+      } else {
+        showAlert('error', response.message || 'Failed to save script changes.');
+      }
+    } catch (error) {
+      console.error('Error saving script:', error);
+      showAlert('error', error instanceof Error ? error.message : 'An unexpected error occurred during save.');
+    } finally {
+      setIsSaving(false);
+    }
   };
+
+
+  const handleTypeChangeOld = (id: string, type: ElementType) => {
+    setElements(prev =>
+        prev.map(el => {
+            if (el.id === id) {
+                 if (!isTemporaryId(el.componentId) && el.componentId) {
+                     modifiedComponentIdsRef.current.add(el.componentId);
+                 }
+                // Handle potential segment changes if type becomes/stops being scene-heading
+                // This might involve creating/removing temporary segment IDs or merging segments
+                // (More complex logic needed here depending on desired behavior)
+                return { ...el, type };
+            }
+            return el;
+        })
+    );
+    setHasUnsavedChanges(true);
+};
+
+const handleTypeChange = useCallback(async (id: string, newType: ElementType) => { // Make async
+  let segmentNumber: number | undefined = undefined;
+  let newTempSegmentId: string | undefined = undefined;
+  let originalComponentIdToDelete: string | undefined = undefined;
+  let newTempComponentId: string | undefined = undefined;
+
+  // --- Logic for changing TO Scene Heading ---
+  if (newType === 'scene-heading') {
+      try {
+          segmentNumber = await api.getNextSegmentNumber(scriptId); // Fetch next segment number
+          newTempSegmentId = generateTemporaryId('seg'); // Create temp ID for the new segment
+          newTempComponentId = generateTemporaryId('el'); // Create temp ID for the new heading component itself
+          console.log(`Changing type to Scene Heading. New Temp Segment ID: ${newTempSegmentId}, Fetched Segment Number: ${segmentNumber}`);
+      } catch (error) {
+          showAlert('error', `Failed to get next segment number: ${error instanceof Error ? error.message : 'Unknown error'}`);
+          // Fallback if API fails
+          segmentNumber = Date.now();
+          newTempSegmentId = generateTemporaryId('seg');
+          newTempComponentId = generateTemporaryId('el');
+          console.error("Falling back to local segment position calculation.");
+      }
+  }
+  // --- End Logic for Scene Heading ---
+
+  setElements(prev =>
+      prev.map(el => {
+          if (el.id === id) {
+              const originalType = el.type;
+              // If changing *to* scene heading
+              if (newType === 'scene-heading' && originalType !== 'scene-heading') {
+                  // If the original element had a backend ID, mark it for deletion
+                  if (!isTemporaryId(el.componentId) && el.componentId) {
+                      originalComponentIdToDelete = el.componentId;
+                  }
+                  // Return the new heading element configuration
+                  return {
+                      ...el,
+                      type: newType,
+                      sceneSegmentId: newTempSegmentId, // Assign new temp segment ID
+                      segmentPosition: segmentNumber, // Assign fetched segment number
+                      componentId: newTempComponentId || el.componentId, // Assign new temp component ID
+                      position: 1000, // Reset component position within the new segment
+                      isNew: true // Treat this effectively as a new component/segment start
+                  };
+              }
+              // If changing *from* scene heading or just a regular type change
+              else {
+                   // Mark as modified if it's an existing component
+                   if (!isTemporaryId(el.componentId) && el.componentId) {
+                      modifiedComponentIdsRef.current.add(el.componentId);
+                   }
+                   // If changing *from* scene heading, nullify segment-specific info?
+                   // This depends on desired behavior - maybe keep segmentPosition?
+                   const segmentPosition = newType === 'scene-heading' ? el.segmentPosition : undefined;
+
+                   return {
+                       ...el,
+                       type: newType,
+                       segmentPosition // Keep if still heading, clear otherwise (or adjust as needed)
+                      };
+              }
+          }
+          return el;
+      })
+  );
+
+  // Add the original component ID to the delete list if necessary
+  if (originalComponentIdToDelete) {
+      deletedComponentIdsRef.current.add(originalComponentIdToDelete);
+      console.log(`Marked original component ${originalComponentIdToDelete} for deletion.`);
+  }
+
+  setHasUnsavedChanges(true);
+}, [scriptId, elements, setElements, setHasUnsavedChanges, showAlert]); 
+
 
 
   const handleDeleteComment = (commentId: string) => {
@@ -881,17 +1284,19 @@ Copyright: ${titlePage.copyright}
       if (scriptId) {
         try {
           const meta = await api.getScriptMetadata(scriptId);
+          setScriptMetadata(mapApiResponseToScriptMetadata(meta)); 
           // Map response if needed (like in ScriptEditorPage)
-          setScriptMetadata({
-              id: meta.id,
-              title: meta.title || `Script ${scriptId.slice(0, 8)}`,
-              // genre: meta.genre, // Make sure your interface/mapping includes genre
-              creationMethod: meta.creation_method,
-              createdAt: meta.created_at,
-              updatedAt: meta.updated_at,
-              isAiGenerated: meta.creation_method === 'WITH_AI',
-              // ... other fields if needed
-          });
+          // setScriptMetadata({
+          //     id: meta.id,
+          //     title: meta.title || `Script ${scriptId.slice(0, 8)}`,
+          //     // genre: meta.genre, // Make sure your interface/mapping includes genre
+          //     creationMethod: meta.creation_method,
+          //     createdAt: meta.created_at,
+          //     updatedAt: meta.updated_at,
+          //     isAiGenerated: meta.creation_method === 'WITH_AI',
+              
+          //     // ... other fields if needed
+          // });
           setTitle(meta.title || `Script ${scriptId.slice(0, 8)}`); // Update main title state
         } catch (err) {
           console.error("Error fetching metadata in ScriptEditor:", err);
