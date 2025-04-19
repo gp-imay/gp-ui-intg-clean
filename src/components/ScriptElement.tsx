@@ -131,7 +131,7 @@ export const ScriptElement = forwardRef<ScriptElementRef, ScriptElementProps>((p
   const aiButtonRef = useRef<HTMLButtonElement>(null);
   const { showAlert } = useAlert();
   // Add this constant near the imports or inside the component
-  const aiIconAnimationUrl = "https://lottie.host/70225ca3-6674-47aa-9d24-d3c3c01a6170/S0oKgzDFHz.json";
+  const aiIconAnimationUrl = "https://lottie.host/94bb5e8e-9be7-4c12-90bd-8f8081f987d1/MDDARSwRqu.json";
   
 
   const {

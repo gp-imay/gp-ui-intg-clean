@@ -86,23 +86,14 @@ export function Header({
     <header className="bg-white shadow-sm z-10 flex-none">
       <div className="max-w-full px-4 py-4 flex items-center">
         {/* Left section - Title and home button */}
-  
         <div className="w-[300px] flex-shrink-0 flex items-center space-x-4">
-        
-        <img
-    src="https://gplogos.blob.core.windows.net/logos/gp_beta_logo.png" // The logo URL you provided
-    alt="Grease Pencil"
-    className="h-5" // Adjust size as needed
-  />
-  <Home className="h-5 w-5 text-gray-600 hover:text-blue-600 cursor-pointer transition-colors"
+          <Home className="h-5 w-5 text-gray-600 hover:text-blue-600 cursor-pointer transition-colors"
             onClick={handleNavigateToDashboard}
           />
-         
-       
           <div className="flex items-center gap-2 min-w-0">
             <button
               onClick={() => setShowTitlePageModal(true)}
-              className="text-l font-semibold text-gray-900 hover:text-blue-600 transition-colors truncate"
+              className="text-xl font-semibold text-gray-900 hover:text-blue-600 transition-colors truncate"
               title={title}
             >
               {title}
@@ -111,9 +102,9 @@ export function Header({
               onClick={() => setShowTitlePageModal(true)}
               className="text-gray-400 hover:text-blue-600 transition-colors flex-shrink-0"
             >
-              <Edit2 className="h-3 w-3" />
+              <Edit2 className="h-4 w-4" />
             </button>
-            {/* <button
+            <button
               onClick={onSave}
               disabled={isSaving || !onSave}
               className={`inline-flex items-center p-2 rounded-full transition-colors ${!onSave ? 'hidden' :
@@ -134,7 +125,7 @@ export function Header({
               ) : (
                 <Save className="h-5 w-5" />
               )}
-            </button> */}
+            </button>
 
           </div>
         </div>
@@ -204,29 +195,6 @@ export function Header({
 
           {/* Profile menu */}
           <div className="flex items-center gap-4">
-          <button
-              onClick={onSave}
-              disabled={isSaving || !onSave}
-              className={`inline-flex items-center p-2 rounded-full transition-colors ${!onSave ? 'hidden' :
-                isSaving ? 'text-gray-400 cursor-not-allowed' :
-                  hasUnsavedChanges ? 'text-blue-500 hover:bg-blue-50 animate-pulse' :
-                    'text-green-500 hover:bg-green-50'
-                }`}
-              title={
-                isSaving
-                  ? "Saving..."
-                  : hasUnsavedChanges
-                    ? "Unsaved changes"
-                    : "All changes saved"
-              }
-            >
-              {isSaving ? (
-                <RefreshCw className="h-5 w-5 animate-spin" />
-              ) : (
-                <Save className="h-5 w-5" />
-              )}
-            </button>
-
             <div className="relative" ref={profileMenuRef}>
               <button
                 onClick={() => setShowProfileMenu(!showProfileMenu)}
@@ -255,7 +223,6 @@ export function Header({
                     <p className="font-semibold text-gray-900">{user?.user_metadata?.full_name || user?.email}</p>
                     <p className="text-sm text-gray-600">{user?.email}</p>
                   </div>
-                  
                   <div className="py-2">
                     <button
                       onClick={() => {
@@ -276,11 +243,8 @@ export function Header({
                       <LogOut className="h-4 w-4" />
                       Sign out
                     </button>
-                    
                   </div>
-
                 </div>
-                
               )}
             </div>
           </div>
