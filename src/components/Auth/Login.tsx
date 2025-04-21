@@ -11,12 +11,23 @@ export default function Login() {
   const navigate = useNavigate();
 
   useEffect(() => {
+    // Check for hash params for OAuth login
+    if (window.location.hash.includes('access_token')) {
+      // Let Supabase handle the OAuth response
+      supabase.auth.getSession().then(({ data }) => {
+        if (data?.session) {
+          navigate('/');
+        }
+      });
+    }
+  
     const { data: authListener } = supabase.auth.onAuthStateChange((event) => {
+      console.log('Auth state changed:', event);
       if (event === 'SIGNED_IN') {
         navigate('/');
       }
     });
-
+  
     return () => {
       if (authListener && authListener.subscription) {
         authListener.subscription.unsubscribe();
@@ -57,18 +68,19 @@ export default function Login() {
         },
       });
       if (error) throw error;
+      // No need to navigate here as the redirect will happen automatically
     } catch (error: any) {
       setError(error.message);
       setLoading(false);
     }
   };
-
+  
   return (
     <div className="min-h-screen bg-gray-50 flex flex-col justify-center">
       <div className="sm:mx-auto sm:w-full sm:max-w-md">
         <div className="flex justify-center">
           <img 
-            src="https://framerusercontent.com/images/wlmLl0p0tfc5j0IhyhoO8krmeCM.png" 
+            src="https://gplogos.blob.core.windows.net/logos/gp_beta_logo.png" 
             alt="Grease Pencil Logo" 
             className="h-16"
           />

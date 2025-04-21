@@ -7,12 +7,38 @@ import { Dashboard } from './pages/Dashboard';
 import ScriptEditorPageWithAlerts from './pages/ScriptEditorPage';
 // import { HomePage } from './pages/HomePage';
 import { AlertProvider } from './components/Alert';
+import { supabase } from './lib/supabase';
 
 // Private route component to protect routes that require authentication
 function PrivateRoute({ children }: { children: React.ReactNode }) {
   const { session } = useAuth();
   return session ? <>{children}</> : <Navigate to="/login" />;
 }
+const handleOAuthRedirect = async () => {
+  if (window.location.hash && window.location.hash.includes('access_token')) {
+    const hashParams = new URLSearchParams(window.location.hash.substring(1));
+    const accessToken = hashParams.get('access_token');
+    const refreshToken = hashParams.get('refresh_token');
+    
+    if (accessToken) {
+      // Set the session with the tokens from the URL
+      const { error } = await supabase.auth.setSession({
+        access_token: accessToken,
+        refresh_token: refreshToken || '',
+      });
+      
+      if (error) {
+        console.error('Error setting session:', error);
+      } else {
+        console.log('Successfully authenticated');
+        // You could redirect here if needed
+        window.location.href = '/'; // Redirect to dashboard
+      }
+    }
+  }
+};
+handleOAuthRedirect();
+
 
 function App() {
   return (
