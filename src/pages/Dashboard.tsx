@@ -28,7 +28,8 @@ import {
   ChevronLeft,
   Trash2
 } from 'lucide-react';
-import { mockApi, Script } from '../services/mockApi'; // Assuming mockApi is used based on original code
+import { mockApi, Script } from '../services/mockApi';
+import { supabase } from '../lib/supabase';
 
 type Section = 'scripts' | 'projects' | 'pricing' | 'promote' | 'help';
 
@@ -83,6 +84,17 @@ export function Dashboard() {
       navigate('#scripts', { replace: true });
     }
   }, [location, navigate]);
+  useEffect(() => {
+    // Check if the user is logged in
+    const checkUser = async () => {
+      const { data } = await supabase.auth.getSession();
+      if (!data.session) {
+        navigate('/login');
+      }
+    };
+    
+    checkUser();
+  }, [navigate]);
 
   const fetchScripts = async () => {
     try {
