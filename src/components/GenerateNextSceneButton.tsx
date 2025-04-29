@@ -17,6 +17,8 @@ export const GenerateNextSceneButton: React.FC<GenerateNextSceneButtonProps> = (
   return (
     <div className="flex justify-center my-8">
       <button
+        // data-event-name="generate_scenes_for_beat_beatsheet_page"
+        data-event-name="generate_next_scenes_with_ai"
         onClick={onClick}
         disabled={isLoading}
         className={`generate-scene-button flex items-center gap-2 px-4 py-3 ${

@@ -5,6 +5,7 @@ import { useClickOutside } from '../../hooks/useClickOutside';
 import { mockApi } from '../../services/mockApi';
 import { useAlert } from '../../components/Alert';
 import { DotLottieReact } from '@lottiefiles/dotlottie-react';
+import { useClarity } from '../../contexts/ClarityContext';
 
 // Interface defining the props expected by the NewScriptModal component
 interface NewScriptModalProps {
@@ -20,6 +21,13 @@ export default function NewScriptModal({ isOpen, onClose, onScriptCreated }: New
   const [subtitle, setSubtitle] = useState('');
   const [genre, setGenre] = useState('');
   const [story, setStory] = useState('');
+  const { setTag } = useClarity();
+
+  useEffect(() => {
+    // Tag the current page
+    setTag('page', 'New_Script_Modal');
+  }, []);
+
 
   // State variables for modal behavior and loading states
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -105,6 +113,9 @@ if (!title.trim() || !story.trim()) { // Check both title and story
       // Call the appropriate API function based on user choice
       if (withAI) {
         console.log(`Creating script with AI assistance`);
+        setTag('action', 'before script creation');
+        setTag('scriptType', "With AI");
+    
         // Assuming mockApi returns { script: Script, beats: Beat[] }
         const result = await mockApi.createAIScript(scriptData);
         createdScript = result.script; // The created script object
@@ -112,7 +123,13 @@ if (!title.trim() || !story.trim()) { // Check both title and story
       } else {
         console.log(`Creating script manually`);
         // Assuming mockApi returns Script object
+        setTag('action', 'after script creation');
+        setTag('scriptType', "With AI");
+        setTag('scriptCreation', "Sucess");
         createdScript = await mockApi.createScript(scriptData);
+        setTag('action', 'after script creation');
+        setTag('scriptType', "Manual");
+        setTag('scriptCreation', "Sucess");
       }
 
       console.log("Script created successfully:", createdScript);
@@ -143,6 +160,7 @@ if (!title.trim() || !story.trim()) { // Check both title and story
       }
     } catch (err: any) {
       console.error("Error creating script:", err);
+      setTag('scriptCreation', "Failed");
       showAlert('error', err.message || 'Failed to create script');
       // Reset loading state only on error, success handles it via navigation/loading animation
       setIsSubmitting(false);
@@ -318,6 +336,7 @@ if (!title.trim() || !story.trim()) { // Check both title and story
 
                     {/* Start Blank Button */}
                     <button
+                      data-event-name="create_script_blank"
                       type="button" // Use type="button" to prevent default form submission
                       onClick={(e) => handleSubmit(e, false)} // Call handler with withAI=false
                       disabled={isSubmitting} // Disable if any submission is in progress
@@ -345,6 +364,7 @@ className={`flex flex-col items-center justify-center text-center p-6 border rou
 
                     {/* Start with AI Button */}
                     <button
+                      data-event-name="create_script_ai"
                       type="button" // Use type="button"
                       onClick={(e) => handleSubmit(e, true)} // Call handler with withAI=true
                       disabled={isSubmitting} // Disable if any submission is in progress

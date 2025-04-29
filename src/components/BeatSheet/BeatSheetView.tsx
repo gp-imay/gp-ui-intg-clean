@@ -9,6 +9,7 @@ import { Beat, GeneratedScenesResponse } from '../../types/beats';
 import { api } from '../../services/api';
 import { useAlert } from '../Alert';
 import { ScriptElement } from '../../types/screenplay';
+import Joyride, { CallBackProps, STATUS } from 'react-joyride';
 
 const ACTS = ['Act 1', 'Act 2A', 'Act 2B', 'Act 3'] as const;
 
@@ -39,6 +40,57 @@ export function BeatSheetView({
   const [scriptState, setScriptState] = useState<ScriptState>('empty');
   const { showAlert } = useAlert();
   const [hasAttemptedBeatsLoad, setHasAttemptedBeatsLoad] = useState(false);
+  const [runTour, setRunTour] = useState(false);
+
+  // Tour guide steps
+  const tourSteps = [
+    {
+      target: '.p-4.flex.justify-center',
+      content: '🎬 Welcome to Your Story Structure! This is your command center for turning ideas into screenplays.',
+      placement: 'center' as const,
+      disableBeacon: true
+    },
+    {
+      target: '.w-\\[200px\\].flex-shrink-0.border-r',
+      content: '📚 Your Story Acts - The screenplay is divided into four acts. Each act contains story beats that drive your narrative forward.',
+      placement: 'right' as const
+    },
+    {
+      target: '.min-w-24',
+      content: '⚡ Generate entire act at once! Click this to automatically create scene descriptions for all beats in this act.',
+      placement: 'right' as const
+    },
+    {
+      target: '.rounded-lg.shadow-lg',
+      content: '🎯 Story Beats - Each card represents a pivotal moment. Click the edit button to modify the description, then generate scenes.',
+      placement: 'bottom' as const
+    },
+    {
+      target: '.text-blue-600.hover\\:bg-blue-50.rounded-md.border.border-blue-200',
+      content: '🤖 AI Scene Generation - Click to transform this beat into detailed scene descriptions. The AI creates scene headings and one-line summaries.',
+      placement: 'left' as const
+    },
+    {
+      target: '.flex.items-center.justify-center.gap-1',
+      content: '👁️ View Scenes - Click to see generated scenes for this beat. You can edit and refine each scene description.',
+      placement: 'left' as const
+    },
+    {
+      target: '.inline-flex.items-center.px-4.py-2.border.border-transparent.text-sm.font-medium.rounded-md.shadow-sm.text-white.bg-green-600',
+      content: '🚀 Ready to Write! Click "Generate Script" to transform your first scene into screenplay format. After that, use "Generate Next Scene" in the script editor.',
+      placement: 'bottom' as const
+    },
+    // {
+    //   target: '.drag-handle',
+    //   content: '↔️ Drag & Drop - Reorder beats by dragging them horizontally within their act.',
+    //   placement: 'bottom' as const
+    // },
+    {
+      target: 'body',
+      content: '💡 Pro Tip: Start with beats → Generate Scenes → Review & edit Scenes → Generate script. You\'re always in control - AI assists, you decide!',
+      placement: 'center' as const
+    }
+  ];
 
   // Ref to track if beats have been fetched to prevent duplicate API calls
   const beatsLoadedRef = useRef(false);
@@ -61,6 +113,16 @@ export function BeatSheetView({
   // Debug logging for component lifecycle
   useEffect(() => {
     console.log("BeatSheetView mounted");
+    
+    // Check if user has seen the tour before
+    const hasSeenTour = localStorage.getItem('beatsheet_tour_completed');
+    if (!hasSeenTour && beats.length > 0) {
+      // Small delay to ensure elements are rendered
+      setTimeout(() => {
+        setRunTour(true);
+      }, 500);
+    }
+    
     return () => {
       console.log("BeatSheetView unmounted");
       // Reset fetching refs on unmount
@@ -218,6 +280,16 @@ export function BeatSheetView({
     beats: beats.filter(beat => beat.act === act)
   }));
   
+  const handleJoyrideCallback = (data: CallBackProps) => {
+    const { status } = data;
+    const finishedStatuses = [STATUS.FINISHED, STATUS.SKIPPED];
+
+    if (finishedStatuses.includes(status)) {
+      setRunTour(false);
+      localStorage.setItem('beatsheet_tour_completed', 'true');
+    }
+  };
+
   console.log("Rendering BeatSheetView with state:", {
     beatsCount: beats.length,
     scriptState,
@@ -227,10 +299,34 @@ export function BeatSheetView({
 
   return (
     <div className="h-full flex flex-col overflow-hidden">
+      <Joyride
+        steps={tourSteps}
+        continuous={true}
+        showProgress={true}
+        showSkipButton={true}
+        run={runTour && beats.length > 0}
+        styles={{
+          options: {
+            primaryColor: '#2563eb',
+            zIndex: 10000,
+          },
+          tooltip: {
+            borderRadius: 8,
+            padding: 20
+          },
+          tooltipContent: {
+            fontSize: '14px',
+            lineHeight: '1.5'
+          }
+        }}
+        callback={handleJoyrideCallback}
+      />
+
       {/* Generate Script button on top */}
       <div ref={headerRef} className="p-4 flex justify-center bg-white border-b">
         <div className="relative">
           <button
+            data-event-name="generate_script_beatsheet_page"
             onClick={handleGenerateScript}
             disabled={isGeneratingScript || !beatsAvailable}
             className={`inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm ${
@@ -308,6 +404,7 @@ export function BeatSheetView({
                       </div>
                     )}
                     <button
+                      data-event-name="generate_scenes_for_act_beatsheet_page"
                       onClick={() => handleGenerateScenesForAct(act)}
                       disabled={isGeneratingActScenes[act]}
                       className={`absolute bottom-2 left-1/2 -translate-x-1/2 text-xs ${

@@ -179,6 +179,7 @@ export const BeatCard: React.FC<BeatCardProps> = ({
                   </button>
                 ) : (
                   <button
+                    data-event-name="generate_scenes_for_beat_beatsheet_page"
                     onClick={handleGenerateScenes}
                     disabled={isGenerating}
                     className={`w-full py-1 px-2 text-sm text-blue-600 hover:bg-blue-50 rounded-md border border-blue-200 flex items-center justify-center gap-1 ${isGenerating ? 'opacity-50 cursor-not-allowed' : ''

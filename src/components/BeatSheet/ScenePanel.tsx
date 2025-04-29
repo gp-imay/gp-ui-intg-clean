@@ -128,6 +128,7 @@ export const ScenePanel: React.FC<ScenePanelProps> = ({
 
               <div className="flex justify-end">
                 <button
+                  data-event-name="save_scenes_scene_panel_beatsheet_page"
                   onClick={() => handleSave(scene)}
                   disabled={!editedScenes.has(scene.id) || savingScenes.has(scene.id)}
                   className={`px-3 py-1 text-sm rounded flex items-center gap-1 ${

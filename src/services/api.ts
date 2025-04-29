@@ -2,6 +2,94 @@
 import { ApiBeat, GeneratedScenesResponse, Scenes } from '../types/beats';
 import { ScriptElement, ElementType, ScriptCreationMethod, ScriptMetadata, AIActionType, ScriptChangesRequest, ScriptChangesResponse } from '../types/screenplay';
 import { supabase } from '../lib/supabase';
+import { appInsights } from '../lib/applicationInsights';
+
+const generateTelemetryId = () => {
+  return `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+};
+
+const trackApiCall = async <T>(
+  apiName: string,
+  apiCall: () => Promise<T>
+): Promise<T> => {
+  const startTime = Date.now();
+  const telemetryId = generateTelemetryId();
+  
+  try {
+    const result = await apiCall();
+    const duration = Date.now() - startTime;
+    
+    // Track successful API call
+    appInsights.trackDependencyData({
+      id: telemetryId,
+      name: apiName,
+      duration: duration,
+      success: true,
+      responseCode: 200,
+      type: 'HTTP',
+      target: API_BASE_URL,
+      data: `Success: ${apiName}`
+    });
+    
+    // Track metric for successful call
+    appInsights.trackMetric({
+      name: `API_${apiName}_Success`,
+      average: 1,
+      properties: {
+        success: true,
+        duration: duration.toString(),
+        apiName: apiName,
+        telemetryId: telemetryId
+      }
+    });
+    
+    return result;
+  } catch (error: unknown) {
+    const duration = Date.now() - startTime;
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+    const statusCode = typeof error === 'object' && error !== null && 'status' in error 
+    ? (error as { status: number }).status 
+    : 500;
+      
+    // Track failed API call
+    appInsights.trackDependencyData({
+      id: telemetryId,
+      name: apiName,
+      duration: duration,
+      success: false,
+      responseCode: statusCode,
+      type: 'HTTP',
+      target: API_BASE_URL,
+      data: errorMessage
+    });
+    
+    // Track metric for failed call
+    appInsights.trackMetric({
+      name: `API_${apiName}_Failure`,
+      average: 1,
+      properties: {
+        success: false,
+        error: errorMessage,
+        statusCode: statusCode.toString(),
+        duration: duration.toString(),
+        apiName: apiName,
+        telemetryId: telemetryId
+      }
+    });
+    
+    // Track exception
+    appInsights.trackException({
+      exception: error instanceof Error ? error : new Error(errorMessage),
+      properties: {
+        apiName: apiName,
+        statusCode: statusCode.toString(),
+        telemetryId: telemetryId
+      }
+    });
+    
+    throw error;
+  }
+};
 
 // const API_BASE_URL = 'https://script-manager-api-dev.azurewebsites.net/api/v1';
 // const API_BASE_URL = 'http://localhost:8000/api/v1';
@@ -289,7 +377,7 @@ export const api = {
   
   // NEW: Create a new script
   async createScript(payload: Omit<CreateScriptPayload, 'creation_method'>, creationMethod: ScriptCreationMethod = 'FROM_SCRATCH'): Promise<CreateScriptResponse> {
-    try {
+    return trackApiCall('CreateScript', async () => {
       const token = await getToken();
       const response = await fetch(
         `${API_BASE_URL}/scripts/`,
@@ -313,14 +401,12 @@ export const api = {
       }
 
       return await response.json();
-    } catch (error) {
-      return handleApiError(error, 'Failed to create script');
-    }
+    });
   },
 
   // NEW: Get script metadata
   async getScriptMetadata(scriptId: string): Promise<ScriptMetadataResponse> {
-    try {
+    return trackApiCall('GetScriptMetadata', async () => {
       const token = await getToken();
       const response = await fetch(
         `${API_BASE_URL}/scripts/${scriptId}`,
@@ -338,14 +424,12 @@ export const api = {
       }
 
       return await response.json();
-    } catch (error) {
-      return handleApiError(error, 'Failed to get script information');
-    }
+    });
   },
 
   // NEW: Upload a script file
   async uploadScript(file: File, scriptId?: string): Promise<CreateScriptResponse> {
-    try {
+    return trackApiCall('UploadScript', async () => {
       const token = await getToken();
       const formData = new FormData();
       formData.append('file', file);
@@ -372,14 +456,12 @@ export const api = {
       }
 
       return await response.json();
-    } catch (error) {
-      return handleApiError(error, 'Failed to upload script file');
-    }
+    });
   },
 
   // Updated: Get beats with better error handling
   async getBeats(scriptId: string): Promise<ApiBeat[]> {
-    try {
+    return trackApiCall('GetBeats', async () => {
       const token = await getToken();
       const response = await fetch(
         `${API_BASE_URL}/beats/${scriptId}/beatsheet`,
@@ -390,23 +472,19 @@ export const api = {
           }
         }
       );
-
+  
       if (!response.ok) {
         const errorText = await response.text();
-        throw new Error(
-          `Failed to fetch beats: ${errorText || response.statusText}`
-        );
+        throw new Error(`Failed to fetch beats: ${errorText || response.statusText}`);
       }
-
+  
       return await response.json();
-    } catch (error) {
-      return handleApiError(error, 'Failed to fetch script beats');
-    }
+    });
   },
-
+  
   // Updated: Update beat with better error handling
   async updateBeat(beatId: string, payload: UpdateBeatPayload): Promise<ApiBeat> {
-    try {
+    return trackApiCall('UpdateBeat', async () => {
       const token = await getToken();
       const response = await fetch(
         `${API_BASE_URL}/beats/${beatId}`,
@@ -427,14 +505,12 @@ export const api = {
       }
 
       return await response.json();
-    } catch (error) {
-      return handleApiError(error, 'Failed to update beat information');
-    }
+    });
   },
 
   // Updated: Generate scenes with better error handling
   async generateScenes(beatId: string): Promise<GeneratedScenesResponse> {
-    try {
+    return trackApiCall('GenerateScenes', async () => {
       const token = await getToken();
       const response = await fetch(
         `${API_BASE_URL}/scene-descriptions/beat`,
@@ -455,14 +531,12 @@ export const api = {
       }
 
       return await response.json();
-    } catch (error) {
-      return handleApiError(error, 'Failed to generate scenes for this beat');
-    }
+    });
   },
 
   // Updated: Update scene description with better error handling
   async updateSceneDescription(sceneId: string, scene_detail_for_ui: string): Promise<Scenes> {
-    try {
+    return trackApiCall('UpdateSceneDescription', async () => {
       const token = await getToken();
       const response = await fetch(
         `${API_BASE_URL}/scene-descriptions/${sceneId}`,
@@ -483,14 +557,12 @@ export const api = {
       }
 
       return await response.json();
-    } catch (error) {
-      return handleApiError(error, 'Failed to update scene description');
-    }
+    });
   },
 
   // Updated: Generate scenes for act with better error handling
   async generateScenesForAct(act: string, scriptId: string = '73638436-9d3d-4bc4-89ef-9d7b9e5141df'): Promise<ActScenesResponse> {
-    try {
+    return trackApiCall('GenerateScenesForAct', async () => {
       const token = await getToken();
       const payload: GenerateScenesForActPayload = {
         script_id: scriptId,
@@ -516,14 +588,12 @@ export const api = {
       }
 
       return await response.json();
-    } catch (error) {
-      return handleApiError(error, 'Failed to generate scenes for this act');
-    }
+    });
   },
 
   // Updated: Generate script with better error handling and scriptId parameter
   async generateScript(scriptId: string): Promise<SceneSegmentGenerationResponse> {
-    try {
+    return trackApiCall('GenerateScript', async () => {
       const token = await getToken();
       const response = await fetch(
         `${API_BASE_URL}/scene-segments/ai/get-or-generate-first`,
@@ -545,14 +615,12 @@ export const api = {
 
       const data: SceneSegmentGenerationResponse = await response.json();
       return data;
-    } catch (error) {
-      return handleApiError(error, 'Failed to generate script');
-    }
+    });
   },
 
   // NEW: Generate next scene
   async generateNextScene(scriptId: string, currentSceneSegmentId: string): Promise<SceneSegmentGenerationResponse> {
-    try {
+    return trackApiCall('GenerateNextScene', async () => {
       if (!scriptId) {
         throw new Error('Script ID is required to generate the next scene');
       }
@@ -603,22 +671,13 @@ export const api = {
       console.log(`Successfully generated next scene: ${data.scene_segment_id}`);
 
       return data;
-    } catch (error) {
-      console.error('Error generating next scene:', error);
-
-      // Rethrow with a user-friendly message
-      if (error instanceof Error) {
-        throw error;
-      } else {
-        throw new Error('Failed to generate the next scene due to an unexpected error');
-      }
-    }
+    });
   },
 
   
   // Updated: Get script segments with pagination support and better error handling
   async getScriptSegments(scriptId: string, skip: number = 0, limit: number = 20): Promise<SegmentListResponse> {
-    try {
+    return trackApiCall('GetScriptSegments', async () => {
       if (!scriptId) {
         throw new Error('Script ID is required to fetch script segments');
       }
@@ -701,14 +760,11 @@ export const api = {
       
       console.log(`Fetched ${data.segments.length} segments, total: ${data.total}`);
       return data;
-    } catch (error) {
-      console.error('Error fetching script segments:', error);
-      return handleApiError(error, 'Failed to fetch script segments');
-    }
+    });
   },
 
   async saveScriptChangesOld(scriptId: string, changes: SaveChangesRequest): Promise<boolean> {
-    try {
+    return trackApiCall('SaveScriptChangesOld', async () => {
       console.log("logging changes : ",changes)
       const token = await getToken();
       const response = await fetch(
@@ -730,12 +786,11 @@ export const api = {
       }
   
       return true;
-    } catch (error) {
-      return handleApiError(error, 'Failed to save script changes');
-    }
+    });
   },
+
   async saveScriptChanges(scriptId: string, changes: ScriptChangesRequest): Promise<ScriptChangesResponse> { // Return the full response
-    try {
+    return trackApiCall('SaveScriptChanges', async () => {
       console.log("Saving changes for script:", scriptId);
       console.log("Payload:", JSON.stringify(changes, null, 2));
       if (!scriptId) {
@@ -779,18 +834,11 @@ export const api = {
 
       return responseData; // Return the full response data including mappings
 
-    } catch (error) {
-      console.error("Error in saveScriptChanges:", error);
-      // Ensure a consistent error format is thrown
-       if (error instanceof Error) {
-            throw error; // Re-throw existing Error objects
-       } else {
-            throw new Error('An unexpected error occurred while saving script changes.'); // Create a new Error for other cases
-       }
-    }
+    });
   },
-  async  expandComponent(componentId: string): Promise<ExpandComponentResponse> {
-    try {
+
+  async expandComponent(componentId: string): Promise<ExpandComponentResponse> {
+    return trackApiCall('ExpandComponent', async () => {
       const token = await getToken();
       
       const response = await fetch(
@@ -810,14 +858,11 @@ export const api = {
       }
   
       return await response.json();
-    } catch (error) {
-      console.error('Failed to expand component:', error);
-      throw error;
-    }
+    });
   },
 
-  async  shortenComponent(componentId: string): Promise<ExpandComponentResponse> {
-    try {
+  async shortenComponent(componentId: string): Promise<ExpandComponentResponse> {
+    return trackApiCall('ShortenComponent', async () => {
       const token = await getToken();
       
       const response = await fetch(
@@ -864,13 +909,11 @@ export const api = {
         // } : undefined,
       };
       return normalizedResponse;
-    } catch (error) {
-      console.error('Failed to expand component:', error);
-      throw error;
-    }
+    });
   },
-  async  continueComponent(componentId: string): Promise<ExpandComponentResponse> {
-    try {
+
+  async continueComponent(componentId: string): Promise<ExpandComponentResponse> {
+    return trackApiCall('ContinueComponent', async () => {
       const token = await getToken();
       
       const response = await fetch(
@@ -917,15 +960,11 @@ export const api = {
         } : undefined,
       };
       return normalizedResponse;
-  
-    } catch (error) {
-      console.error('Failed to expand component:', error);
-      throw error;
-    }
+    });
   },
 
-  async  rewriteComponent(componentId: string): Promise<ExpandComponentResponse> {
-    try {
+  async rewriteComponent(componentId: string): Promise<ExpandComponentResponse> {
+    return trackApiCall('RewriteComponent', async () => {
       const token = await getToken();
       
       const response = await fetch(
@@ -972,17 +1011,15 @@ export const api = {
         } : undefined,
       };
       return normalizedResponse;
-    } catch (error) {
-      console.error('Failed to expand component:', error);
-      throw error;
-    }
+    });
   },
+
   async applyTransform(
     componentId: string,
     transformType: AIActionType | ExpansionType, // Use the type matching your API expectation
     alternativeText: string
   ): Promise<ApplyTransformResponse> {
-    try {
+    return trackApiCall('ApplyTransform', async () => {
       if (!componentId) {
         throw new Error("Component ID is required to apply transform.");
       }
@@ -1017,19 +1054,15 @@ export const api = {
       const responseData: ApplyTransformResponse = await response.json();
       console.log("Apply Transform API Success Response:", responseData); // Log success response
       return responseData;
-
-    } catch (error) {
-      console.error('Failed to apply transform:', error);
-      // Re-throw the error to be caught by the caller
-      throw error;
-    }
+    });
   },
 
   async getNextSegmentNumber(scriptId: string): Promise<number> {
-    if (!scriptId) {
-      throw new Error("Script ID is required to get the next segment number.");
-    }
-    try {
+    return trackApiCall('GetNextSegmentNumber', async () => {
+      if (!scriptId) {
+        throw new Error("Script ID is required to get the next segment number.");
+      }
+      
       const token = await getToken();
       const response = await fetch(
         `${API_BASE_URL}/scene-segments/script/${scriptId}/next-segment-number`,
@@ -1046,31 +1079,26 @@ export const api = {
         const errorData = await response.json().catch(() => ({}));
         throw new Error(errorData.message || `Failed to get next segment number: ${response.status}`);
       }
+      
       const data: NextSegmentNumberResponse = await response.json();
       return data.next_segment_number;
-    } catch (error) {
-       console.error("Error fetching next segment number:", error);
-       // Provide a fallback or rethrow a specific error
-       // Returning a timestamp-based fallback for now, but ideally, handle the error upstream
-       // throw error; // Or rethrow if the caller should handle it
-       return Date.now(); // Fallback position calculation
-    }
+    });
   },
 
   async getNextComponentPosition(segmentId: string): Promise<number> {
-     if (!segmentId) {
-       throw new Error("Segment ID is required to get the next component position.");
-     }
-     // IMPORTANT: If the segmentId is temporary, we cannot call the backend API.
-     // We need a local strategy for positioning within new, unsaved segments.
-     if (segmentId.startsWith('temp-seg-')) {
-         console.warn(`Cannot fetch position for temporary segment ID: ${segmentId}. Using local calculation.`);
-         // Implement local calculation (e.g., find max position in elements with this temp segmentId + 1000)
-         // For simplicity, returning a timestamp-based fallback here.
-         return Date.now();
-     }
+    return trackApiCall('GetNextComponentPosition', async () => {
+      if (!segmentId) {
+        throw new Error("Segment ID is required to get the next component position.");
+      }
+      // IMPORTANT: If the segmentId is temporary, we cannot call the backend API.
+      // We need a local strategy for positioning within new, unsaved segments.
+      if (segmentId.startsWith('temp-seg-')) {
+          console.warn(`Cannot fetch position for temporary segment ID: ${segmentId}. Using local calculation.`);
+          // Implement local calculation (e.g., find max position in elements with this temp segmentId + 1000)
+          // For simplicity, returning a timestamp-based fallback here.
+          return Date.now();
+      }
 
-    try {
       const token = await getToken();
       const response = await fetch(
         `${API_BASE_URL}/scene-segments/${segmentId}/next-component-position`,
@@ -1087,15 +1115,10 @@ export const api = {
         const errorData = await response.json().catch(() => ({}));
         throw new Error(errorData.message || `Failed to get next component position: ${response.status}`);
       }
+      
       const data: NextComponentPositionResponse = await response.json();
       return data.next_component_position;
-    } catch (error) {
-       console.error(`Error fetching next component position for segment ${segmentId}:`, error);
-       // Provide a fallback or rethrow a specific error
-       // Returning a timestamp-based fallback for now, but ideally, handle the error upstream
-       // throw error; // Or rethrow if the caller should handle it
-       return Date.now(); // Fallback position calculation
-    }
+    });
   },
 
   // Convert API scene components to script elements
@@ -1271,7 +1294,7 @@ export const api = {
     scenesCount: number;
     currentSceneSegmentId?: string;
   }> {
-    try {
+    return trackApiCall('GetScriptState', async () => {
       // Get script metadata
       const metadata = await this.getScriptMetadata(scriptId);
 
@@ -1306,8 +1329,6 @@ export const api = {
         scenesCount,
         currentSceneSegmentId
       };
-    } catch (error) {
-      return handleApiError(error, 'Failed to determine script state');
-    }
+    });
   },
 };

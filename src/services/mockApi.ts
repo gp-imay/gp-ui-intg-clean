@@ -1,6 +1,94 @@
 import { supabase } from '../lib/supabase';
 import { ScriptCreationMethod } from '../types/screenplay';
 import { Beat } from '../types/beats';
+import { appInsights } from '../lib/applicationInsights';
+
+const generateTelemetryId = () => {
+  return `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+};
+
+const trackApiCall = async <T>(
+  apiName: string,
+  apiCall: () => Promise<T>
+): Promise<T> => {
+  const startTime = Date.now();
+  const telemetryId = generateTelemetryId();
+  
+  try {
+    const result = await apiCall();
+    const duration = Date.now() - startTime;
+    
+    // Track successful API call
+    appInsights.trackDependencyData({
+      id: telemetryId,
+      name: apiName,
+      duration: duration,
+      success: true,
+      responseCode: 200,
+      type: 'HTTP',
+      target: API_BASE_URL,
+      data: `Success: ${apiName}`
+    });
+    
+    // Track metric for successful call
+    appInsights.trackMetric({
+      name: `API_${apiName}_Success`,
+      average: 1,
+      properties: {
+        success: true,
+        duration: duration.toString(),
+        apiName: apiName,
+        telemetryId: telemetryId
+      }
+    });
+    
+    return result;
+  } catch (error: unknown) {
+    const duration = Date.now() - startTime;
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+    const statusCode = typeof error === 'object' && error !== null && 'status' in error 
+    ? (error as { status: number }).status 
+    : 500;
+      
+    // Track failed API call
+    appInsights.trackDependencyData({
+      id: telemetryId,
+      name: apiName,
+      duration: duration,
+      success: false,
+      responseCode: statusCode,
+      type: 'HTTP',
+      target: API_BASE_URL,
+      data: errorMessage
+    });
+    
+    // Track metric for failed call
+    appInsights.trackMetric({
+      name: `API_${apiName}_Failure`,
+      average: 1,
+      properties: {
+        success: false,
+        error: errorMessage,
+        statusCode: statusCode.toString(),
+        duration: duration.toString(),
+        apiName: apiName,
+        telemetryId: telemetryId
+      }
+    });
+    
+    // Track exception
+    appInsights.trackException({
+      exception: error instanceof Error ? error : new Error(errorMessage),
+      properties: {
+        apiName: apiName,
+        statusCode: statusCode.toString(),
+        telemetryId: telemetryId
+      }
+    });
+    
+    throw error;
+  }
+};
 
 export interface Script {
   id: string;
@@ -112,9 +200,6 @@ const mapActFromApi = (apiAct: string): Beat['act'] => {
   return actMap[apiAct.toLowerCase()] || 'Act 1';
 };
 
-
-
-
 // Helper function to handle API errors consistently
 function handleApiError(error: any, defaultMessage: string): never {
   console.error('Mock API Error:', error);
@@ -169,20 +254,19 @@ function apiBeatsToBeats(apiBeats: ApiBeat[]): Beat[] {
 export const mockApi = {
 
   async getAllUserScripts(): Promise<Script[]> {
-    const { data: { session } } = await supabase.auth.getSession();
+    return trackApiCall('GetAllUserScripts', async () => {
+      const { data: { session } } = await supabase.auth.getSession();
 
-    if (!session) {
-      throw { message: 'User must be authenticated to fetch scripts', status: 401 };
-    }
+      if (!session) {
+        throw { message: 'User must be authenticated to fetch scripts', status: 401 };
+      }
 
-    // If API_BASE_URL is not set, return mock data
-    if (!API_BASE_URL) {
-      console.log('API URL not configured, using mock data');
-      return mockScripts;
-    }
+      // If API_BASE_URL is not set, return mock data
+      if (!API_BASE_URL) {
+        console.log('API URL not configured, using mock data');
+        return mockScripts;
+      }
 
-    try {
-      // Set a high limit to get all scripts (assuming max 50 as mentioned)
       const response = await fetch(`${API_BASE_URL}/scripts/?skip=0&limit=50`, {
         method: 'GET',
         headers: {
@@ -191,7 +275,7 @@ export const mockApi = {
           'Accept': 'application/json'
         }
       });
-
+  
       if (!response.ok) {
         const errorData = await response.json().catch(() => null);
         throw {
@@ -199,42 +283,33 @@ export const mockApi = {
           status: response.status
         };
       }
-
+  
       const data = await response.json();
       return data;
-    } catch (error: any) {
-      console.error('Failed to fetch all scripts:', {
-        error: error.message,
-        status: error.status,
-        stack: error.stack
-      });
-      // showAlert('error', error instanceof Error ? error.message : 'Failed to fetch all scripts');
-
-
-      // Fallback to mock data on error if in development
+    }).catch(error => {
+      // Handle development fallback separately
       if (import.meta.env.DEV) {
         console.log('Falling back to mock data');
         return mockScripts;
       }
-      return handleApiError(error, 'Failed to fetch scripts');
-    }
+      throw error; // Re-throw the error for trackApiCall to handle
+    });  
   },
 
-
   async getUserScripts(): Promise<Script[]> {
-    const { data: { session } } = await supabase.auth.getSession();
+    return trackApiCall('GetUserScripts', async () => {
+      const { data: { session } } = await supabase.auth.getSession();
 
-    if (!session) {
-      throw { message: 'User must be authenticated to fetch scripts', status: 401 };
-    }
+      if (!session) {
+        throw { message: 'User must be authenticated to fetch scripts', status: 401 };
+      }
 
-    // If API_BASE_URL is not set, return mock data
-    if (!API_BASE_URL) {
-      console.log('API URL not configured, using mock data');
-      return mockScripts;
-    }
+      // If API_BASE_URL is not set, return mock data
+      if (!API_BASE_URL) {
+        console.log('API URL not configured, using mock data');
+        return mockScripts;
+      }
 
-    try {
       const response = await fetch(`${API_BASE_URL}/scripts/?skip=0&limit=10`, {
         method: 'GET',
         headers: {
@@ -254,64 +329,58 @@ export const mockApi = {
 
       const data = await response.json();
       return data;
-    } catch (error: any) {
-      console.error('Failed to fetch scripts:', {
-        error: error.message,
-        status: error.status,
-        stack: error.stack
-      });
-
-      // Fallback to mock data on error if in development
+    }).catch(error => {
+      // Handle development fallback separately
       if (import.meta.env.DEV) {
         console.log('Falling back to mock data');
         return mockScripts;
       }
-
+      // throw error; // Re-throw the error for trackApiCall to handle
       return handleApiError(error, 'Failed to fetch scripts');
-    }
+    }); 
   },
 
   // Regular script creation
   async createScript(input: CreateScriptInput): Promise<Script> {
-    const { data: { session } } = await supabase.auth.getSession();
+    return trackApiCall('CreateScript', async () => {
+      const { data: { session } } = await supabase.auth.getSession();
 
-    if (!session) {
-      return handleApiError({
-        message: 'User must be authenticated to create a script',
-        status: 401
-      }, 'Authentication required');
-    }
+      if (!session) {
+        return handleApiError({
+          message: 'User must be authenticated to create a script',
+          status: 401
+        }, 'Authentication required');
+      }
 
-    // Validate required fields
-    if (!input.title?.trim()) {
-      return handleApiError({
-        message: 'Title is required',
-        status: 400
-      }, 'Invalid script data');
-    }
+      // Validate required fields
+      if (!input.title?.trim()) {
+        return handleApiError({
+          message: 'Title is required',
+          status: 400
+        }, 'Invalid script data');
+      }
 
-    // If API_BASE_URL is not set, simulate creation with mock data
-    if (!API_BASE_URL) {
-      console.log("Creating regular script with mock data");
+      // If API_BASE_URL is not set, simulate creation with mock data
+      if (!API_BASE_URL) {
+        console.log("Creating regular script with mock data");
 
-      const newScript: Script = {
-        id: generateId(),
-        name: input.title,
-        subtitle: input.subtitle,
-        genre: input.genre || 'Unknown',
-        story: input.story,
-        progress: 0,
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-        user_id: session.user.id,
-        creation_method: 'FROM_SCRATCH'
-      };
+        const newScript: Script = {
+          id: generateId(),
+          name: input.title,
+          subtitle: input.subtitle,
+          genre: input.genre || 'Unknown',
+          story: input.story,
+          progress: 0,
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+          user_id: session.user.id,
+          creation_method: 'FROM_SCRATCH'
+        };
 
-      mockScripts.unshift(newScript);
-      return newScript;
-    }
+        mockScripts.unshift(newScript);
+        return newScript;
+      }
 
-    try {
       const response = await fetch(`${API_BASE_URL}/scripts/`, {
         method: 'POST',
         headers: {
@@ -338,7 +407,7 @@ export const mockApi = {
 
       const apiResponse: RegularScriptResponse = await response.json();
       return apiResponseToScript(apiResponse);
-    } catch (error: any) {
+    }).catch(error => {
       console.error('Failed to create script:', {
         error: error.message,
         status: error.status,
@@ -348,6 +417,55 @@ export const mockApi = {
       // Fallback to mock data creation on error if in development
       if (import.meta.env.DEV) {
         console.log('Falling back to mock data creation');
+        const { data: { session } } = supabase.auth.getSession();
+        const newScript: Script = {
+          id: generateId(),
+          name: input.title,
+          subtitle: input.subtitle,
+          genre: input.genre || 'Unknown',
+          story: input.story,
+          progress: 0,
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+          user_id: session?.user?.id || 'mock-user',
+          creation_method: 'FROM_SCRATCH'
+        };
+
+        mockScripts.unshift(newScript);
+        return newScript;
+      }
+
+      return handleApiError(error, 'Failed to create script');
+    });
+  },
+
+  // AI script creation - returns both script and beats
+  async createAIScript(input: CreateScriptInput): Promise<{
+    script: Script;
+    beats: Beat[];
+  }> {
+    return trackApiCall('CreateAIScript', async () => {
+      const { data: { session } } = await supabase.auth.getSession();
+
+      if (!session) {
+        return handleApiError({
+          message: 'User must be authenticated to create an AI script',
+          status: 401
+        }, 'Authentication required');
+      }
+
+      // Validate required fields
+      if (!input.title?.trim()) {
+        return handleApiError({
+          message: 'Title is required',
+          status: 400
+        }, 'Invalid script data');
+      }
+
+      // If API_BASE_URL is not set, simulate creation with mock data
+      if (!API_BASE_URL) {
+        console.log("Creating AI script with mock data");
+
         const newScript: Script = {
           id: generateId(),
           name: input.title,
@@ -358,90 +476,42 @@ export const mockApi = {
           created_at: new Date().toISOString(),
           updated_at: new Date().toISOString(),
           user_id: session.user.id,
-          creation_method: 'FROM_SCRATCH'
+          creation_method: 'WITH_AI',
+          current_scene_segment_id: `segment-${Date.now()}`
         };
 
+        // Create mock beats for AI script
+        const mockBeats: Beat[] = [
+          {
+            id: 'beat-1',
+            title: 'Opening Image',
+            description: 'The film begins with a vivid visual that encapsulates the status quo.',
+            category: 'Opening Image',
+            act: 'Act 1',
+            position: { x: 20, y: 20 },
+            isValidated: false,
+            scenes: []
+          },
+          {
+            id: 'beat-2',
+            title: 'Theme Stated',
+            description: 'The theme of the story is hinted at.',
+            category: 'Theme Stated',
+            act: 'Act 1',
+            position: { x: 340, y: 20 },
+            isValidated: false,
+            scenes: []
+          }
+          // More mock beats could be added here
+        ];
+
         mockScripts.unshift(newScript);
-        return newScript;
+        return {
+          script: newScript,
+          beats: mockBeats
+        };
       }
 
-      return handleApiError(error, 'Failed to create script');
-    }
-  },
-
-  // AI script creation - returns both script and beats
-  async createAIScript(input: CreateScriptInput): Promise<{
-    script: Script;
-    beats: Beat[];
-  }> {
-    const { data: { session } } = await supabase.auth.getSession();
-
-    if (!session) {
-      return handleApiError({
-        message: 'User must be authenticated to create an AI script',
-        status: 401
-      }, 'Authentication required');
-    }
-
-    // Validate required fields
-    if (!input.title?.trim()) {
-      return handleApiError({
-        message: 'Title is required',
-        status: 400
-      }, 'Invalid script data');
-    }
-
-    // If API_BASE_URL is not set, simulate creation with mock data
-    if (!API_BASE_URL) {
-      console.log("Creating AI script with mock data");
-
-      const newScript: Script = {
-        id: generateId(),
-        name: input.title,
-        subtitle: input.subtitle,
-        genre: input.genre || 'Unknown',
-        story: input.story,
-        progress: 0,
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-        user_id: session.user.id,
-        creation_method: 'WITH_AI',
-        current_scene_segment_id: `segment-${Date.now()}`
-      };
-
-      // Create mock beats for AI script
-      const mockBeats: Beat[] = [
-        {
-          id: 'beat-1',
-          title: 'Opening Image',
-          description: 'The film begins with a vivid visual that encapsulates the status quo.',
-          category: 'Opening Image',
-          act: 'Act 1',
-          position: { x: 20, y: 20 },
-          isValidated: false,
-          scenes: []
-        },
-        {
-          id: 'beat-2',
-          title: 'Theme Stated',
-          description: 'The theme of the story is hinted at.',
-          category: 'Theme Stated',
-          act: 'Act 1',
-          position: { x: 340, y: 20 },
-          isValidated: false,
-          scenes: []
-        }
-        // More mock beats could be added here
-      ];
-
-      mockScripts.unshift(newScript);
-      return {
-        script: newScript,
-        beats: mockBeats
-      };
-    }
-
-    try {
       const response = await fetch(`${API_BASE_URL}/scripts/with-ai`, {
         method: 'POST',
         headers: {
@@ -484,7 +554,7 @@ export const mockApi = {
         script: scriptData,
         beats: beatsData
       };
-    } catch (error: any) {
+    }).catch(error => {
       console.error('Failed to create AI script:', {
         error: error.message,
         status: error.status,
@@ -494,6 +564,7 @@ export const mockApi = {
       // Fallback to mock data on error if in development
       if (import.meta.env.DEV) {
         console.log('Falling back to mock AI script data');
+        const { data: { session } } = supabase.auth.getSession();
         const newScript: Script = {
           id: generateId(),
           name: input.title,
@@ -503,7 +574,7 @@ export const mockApi = {
           progress: 0,
           created_at: new Date().toISOString(),
           updated_at: new Date().toISOString(),
-          user_id: session.user.id,
+          user_id: session?.user?.id || 'mock-user',
           creation_method: 'WITH_AI',
           current_scene_segment_id: `segment-${Date.now()}`
         };
@@ -539,38 +610,38 @@ export const mockApi = {
       }
 
       return handleApiError(error, 'Failed to create AI script');
-    }
+    });
   },
 
   // Add this method to the mockApi object in mockApi.ts
   async deleteScript(scriptId: string): Promise<void> {
-    const { data: { session } } = await supabase.auth.getSession();
+    return trackApiCall('DeleteScript', async () => {
+      const { data: { session } } = await supabase.auth.getSession();
 
-    if (!session) {
-      return handleApiError({
-        message: 'User must be authenticated to delete a script',
-        status: 401
-      }, 'Authentication required');
-    }
-
-    // If API_BASE_URL is not set, simulate deletion with mock data
-    if (!API_BASE_URL) {
-      console.log(`Simulating deletion of script: ${scriptId}`);
-
-      const scriptIndex = mockScripts.findIndex(s => s.id === scriptId);
-      if (scriptIndex === -1) {
+      if (!session) {
         return handleApiError({
-          message: 'Script not found',
-          status: 404
-        }, 'Script not found');
+          message: 'User must be authenticated to delete a script',
+          status: 401
+        }, 'Authentication required');
       }
 
-      // Remove from mock data
-      mockScripts.splice(scriptIndex, 1);
-      return;
-    }
+      // If API_BASE_URL is not set, simulate deletion with mock data
+      if (!API_BASE_URL) {
+        console.log(`Simulating deletion of script: ${scriptId}`);
 
-    try {
+        const scriptIndex = mockScripts.findIndex(s => s.id === scriptId);
+        if (scriptIndex === -1) {
+          return handleApiError({
+            message: 'Script not found',
+            status: 404
+          }, 'Script not found');
+        }
+
+        // Remove from mock data
+        mockScripts.splice(scriptIndex, 1);
+        return;
+      }
+
       const response = await fetch(`${API_BASE_URL}/scripts/${scriptId}`, {
         method: 'DELETE',
         headers: {
@@ -590,7 +661,7 @@ export const mockApi = {
 
       // Successful deletion (nothing to return)
       return;
-    } catch (error: any) {
+    }).catch(error => {
       console.error('Failed to delete script:', {
         error: error.message,
         status: error.status,
@@ -608,55 +679,55 @@ export const mockApi = {
       }
 
       return handleApiError(error, 'Failed to delete script');
-    }
+    });
   },
 
   async uploadScript(input: UploadScriptInput): Promise<Script> {
-    const { data: { session } } = await supabase.auth.getSession();
+    return trackApiCall('UploadScript', async () => {
+      const { data: { session } } = await supabase.auth.getSession();
 
-    if (!session) {
-      return handleApiError({
-        message: 'User must be authenticated to upload a script',
-        status: 401
-      }, 'Authentication required');
-    }
+      if (!session) {
+        return handleApiError({
+          message: 'User must be authenticated to upload a script',
+          status: 401
+        }, 'Authentication required');
+      }
 
-    // Validate file
-    if (!input.file) {
-      return handleApiError({
-        message: 'File is required',
-        status: 400
-      }, 'Invalid upload data');
-    }
+      // Validate file
+      if (!input.file) {
+        return handleApiError({
+          message: 'File is required',
+          status: 400
+        }, 'Invalid upload data');
+      }
 
-    const fileExtension = input.file.name.split('.').pop()?.toLowerCase();
-    if (!fileExtension || !['pdf', 'fdx'].includes(fileExtension)) {
-      return handleApiError({
-        message: 'Only PDF and FDX files are supported',
-        status: 400
-      }, 'Unsupported file format');
-    }
+      const fileExtension = input.file.name.split('.').pop()?.toLowerCase();
+      if (!fileExtension || !['pdf', 'fdx'].includes(fileExtension)) {
+        return handleApiError({
+          message: 'Only PDF and FDX files are supported',
+          status: 400
+        }, 'Unsupported file format');
+      }
 
-    // If API_BASE_URL is not set, simulate upload with mock data
-    if (!API_BASE_URL) {
-      console.log(`Uploading script: ${input.file.name}`);
+      // If API_BASE_URL is not set, simulate upload with mock data
+      if (!API_BASE_URL) {
+        console.log(`Uploading script: ${input.file.name}`);
 
-      const newScript: Script = {
-        id: generateId(),
-        name: input.title || input.file.name.replace(/\.[^/.]+$/, ''),
-        genre: 'Unknown',
-        progress: 10, // Uploaded scripts start with some progress
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-        user_id: session.user.id,
-        creation_method: 'UPLOAD'
-      };
+        const newScript: Script = {
+          id: generateId(),
+          name: input.title || input.file.name.replace(/\.[^/.]+$/, ''),
+          genre: 'Unknown',
+          progress: 10, // Uploaded scripts start with some progress
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+          user_id: session.user.id,
+          creation_method: 'UPLOAD'
+        };
 
-      mockScripts.unshift(newScript);
-      return newScript;
-    }
+        mockScripts.unshift(newScript);
+        return newScript;
+      }
 
-    try {
       const formData = new FormData();
       formData.append('file', input.file);
 
@@ -683,7 +754,7 @@ export const mockApi = {
 
       const apiResponse = await response.json();
       return apiResponseToScript(apiResponse);
-    } catch (error: any) {
+    }).catch(error => {
       console.error('Failed to upload script:', {
         error: error.message,
         status: error.status,
@@ -693,6 +764,7 @@ export const mockApi = {
       // Fallback to mock data on error if in development
       if (import.meta.env.DEV) {
         console.log('Falling back to mock upload');
+        const { data: { session } } = supabase.auth.getSession();
         const newScript: Script = {
           id: generateId(),
           name: input.title || input.file.name.replace(/\.[^/.]+$/, ''),
@@ -700,7 +772,7 @@ export const mockApi = {
           progress: 10,
           created_at: new Date().toISOString(),
           updated_at: new Date().toISOString(),
-          user_id: session.user.id,
+          user_id: session?.user?.id || 'mock-user',
           creation_method: 'UPLOAD'
         };
 
@@ -709,34 +781,34 @@ export const mockApi = {
       }
 
       return handleApiError(error, 'Failed to upload script');
-    }
+    });
   },
 
   async getScriptById(scriptId: string): Promise<Script> {
-    const { data: { session } } = await supabase.auth.getSession();
+    return trackApiCall('GetScriptById', async () => {
+      const { data: { session } } = await supabase.auth.getSession();
 
-    if (!session) {
-      return handleApiError({
-        message: 'User must be authenticated to fetch scripts',
-        status: 401
-      }, 'Authentication required');
-    }
-
-    // If API_BASE_URL is not set, return mock data
-    if (!API_BASE_URL) {
-      const script = mockScripts.find(s => s.id === scriptId);
-
-      if (!script) {
+      if (!session) {
         return handleApiError({
-          message: 'Script not found',
-          status: 404
-        }, 'Script not found');
+          message: 'User must be authenticated to fetch scripts',
+          status: 401
+        }, 'Authentication required');
       }
 
-      return script;
-    }
+      // If API_BASE_URL is not set, return mock data
+      if (!API_BASE_URL) {
+        const script = mockScripts.find(s => s.id === scriptId);
 
-    try {
+        if (!script) {
+          return handleApiError({
+            message: 'Script not found',
+            status: 404
+          }, 'Script not found');
+        }
+
+        return script;
+      }
+
       const response = await fetch(`${API_BASE_URL}/scripts/${scriptId}`, {
         method: 'GET',
         headers: {
@@ -763,7 +835,7 @@ export const mockApi = {
 
       const apiResponse = await response.json();
       return apiResponseToScript(apiResponse);
-    } catch (error: any) {
+    }).catch(error => {
       console.error('Failed to fetch script:', {
         error: error.message,
         status: error.status,
@@ -786,7 +858,7 @@ export const mockApi = {
       }
 
       return handleApiError(error, 'Failed to fetch script');
-    }
+    });
   },
 
   async getScriptState(scriptId: string): Promise<{
@@ -795,34 +867,36 @@ export const mockApi = {
     scenesCount: number;
     currentSceneSegmentId?: string;
   }> {
-    try {
-      const script = await this.getScriptById(scriptId);
+    return trackApiCall('GetScriptState', async () => {
+      try {
+        const script = await this.getScriptById(scriptId);
 
-      // For mock data, determine state based on creation method
-      let hasBeats = false;
-      let scenesCount = 0;
+        // For mock data, determine state based on creation method
+        let hasBeats = false;
+        let scenesCount = 0;
 
-      if (script.creation_method === 'WITH_AI') {
-        hasBeats = true;
-        scenesCount = script.progress > 50 ? 2 : script.progress > 20 ? 1 : 0;
-      } else if (script.creation_method === 'UPLOAD') {
-        hasBeats = false;
-        scenesCount = Math.floor(script.progress / 10); // Rough estimate
+        if (script.creation_method === 'WITH_AI') {
+          hasBeats = true;
+          scenesCount = script.progress > 50 ? 2 : script.progress > 20 ? 1 : 0;
+        } else if (script.creation_method === 'UPLOAD') {
+          hasBeats = false;
+          scenesCount = Math.floor(script.progress / 10); // Rough estimate
+        }
+
+        return {
+          creationMethod: script.creation_method,
+          hasBeats,
+          scenesCount,
+          currentSceneSegmentId: script.current_scene_segment_id
+        };
+      } catch (error) {
+        return handleApiError(error, 'Failed to determine script state');
       }
-
-      return {
-        creationMethod: script.creation_method,
-        hasBeats,
-        scenesCount,
-        currentSceneSegmentId: script.current_scene_segment_id
-      };
-    } catch (error) {
-      return handleApiError(error, 'Failed to determine script state');
-    }
+    });
   },
 
   async generateNextScene(scriptId: string): Promise<{ success: boolean; scene_segment_id: string }> {
-    try {
+    return trackApiCall('GenerateNextScene', async () => {
       const script = await this.getScriptById(scriptId);
 
       // Only WITH_AI scripts can generate next scenes
@@ -847,8 +921,6 @@ export const mockApi = {
         success: true,
         scene_segment_id: newSceneId
       };
-    } catch (error) {
-      return handleApiError(error, 'Failed to generate next scene');
-    }
+    });
   }
 };

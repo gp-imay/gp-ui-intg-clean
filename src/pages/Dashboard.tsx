@@ -7,6 +7,10 @@ import { AccountSettingsModal } from '../components/Dashboard/AccountSettingsMod
 import ComingSoon from '../components/Dashboard/ComingSoon';
 import NewScriptModal from '../components/Dashboard/NewScriptModal';
 import { useAlert } from '../components/Alert';
+import { useClarity } from '../contexts/ClarityContext';
+// Comment out Formbricks import
+// import formbricks from '@formbricks/js';
+
 import {
   LogOut,
   Search,
@@ -30,6 +34,8 @@ import {
 } from 'lucide-react';
 import { mockApi, Script } from '../services/mockApi';
 import { supabase } from '../lib/supabase';
+// Comment out FormbricksFeedback import
+// import { FormbricksFeedback } from '../components/Dashboard/FormbricksFeedback';
 
 type Section = 'scripts' | 'projects' | 'pricing' | 'promote' | 'help';
 
@@ -47,6 +53,13 @@ export function Dashboard() {
   const [showAccountSettingsModal, setShowAccountSettingsModal] = useState(false);
   const profileMenuRef = useRef<HTMLDivElement>(null);
   const INITIAL_SCRIPT_LIMIT = 6;
+  const { setTag } = useClarity();
+
+  useEffect(() => {
+    // Tag the current page
+    setTag('page', 'dashboard');
+  }, []);
+
 
   // --- State for the expandable feedback panel ---
   const [isFeedbackOpen, setIsFeedbackOpen] = useState(false);
@@ -55,24 +68,73 @@ export function Dashboard() {
     setShowProfileMenu(false);
   });
 
-  // --- Load Typeform Embed Script ---
+  // Comment out Formbricks user info setup
+  /*
   useEffect(() => {
-    const scriptId = 'typeform-embed-script';
-    if (document.getElementById(scriptId)) {
-      return; // Already loaded
+    if (user) {
+      // Set user information with Formbricks
+      const setUserInfo = async () => {
+        try {
+          console.log(user)
+          // Set the user ID
+          await formbricks.setUserId(user.id);
+
+          // Set user email
+          if (user.email) {
+            await formbricks.setEmail(user.email);
+          }
+
+          // Set additional attributes
+          const attributes: Record<string, string> = {};
+
+          if (user.user_metadata?.full_name) {
+            attributes.name = user.user_metadata.full_name;
+          }
+
+          // Add any other user attributes you want to track
+          if (Object.keys(attributes).length > 0) {
+            await formbricks.setAttributes(attributes);
+          }
+
+          console.log("User information set in Formbricks");
+        } catch (error) {
+          console.error("Failed to set user information in Formbricks:", error);
+        }
+      };
+
+      setUserInfo();
     }
-    const script = document.createElement('script');
-    script.id = scriptId;
-    script.src = "//embed.typeform.com/next/embed.js";
-    script.async = true;
-    document.body.appendChild(script);
-    return () => { // Cleanup
-      const existingScript = document.getElementById(scriptId);
-      if (existingScript && document.body.contains(existingScript)) {
-        document.body.removeChild(existingScript);
-      }
+
+    return () => {
+      console.log("Logged out from Formbricks");
+      // When the component unmounts or user logs out, logout from Formbricks
+      const logoutFromFormbricks = async () => {
+        try {
+          await formbricks.logout();
+          console.log("Logged out from Formbricks");
+        } catch (error) {
+          console.error("Failed to logout from Formbricks:", error);
+        }
+      };
+
+      logoutFromFormbricks();
     };
-  }, []); // Runs once on mount
+  }, [user]); // This will run when the user object changes 
+  */
+
+  // Comment out Formbricks tracking function
+  /*
+  const handleSpecificAction = async () => {
+    try {
+      // This will trigger a survey with the action ID "feature_used" 
+      // if there's a survey configured for this action in Formbricks
+      await formbricks.track("feature_used");
+      console.log("Action tracked in Formbricks");
+    } catch (error) {
+      console.error("Failed to track action in Formbricks:", error);
+    }
+  };
+  */
 
   // --- Other useEffect hooks and functions ---
   useEffect(() => {
@@ -92,7 +154,7 @@ export function Dashboard() {
         navigate('/login');
       }
     };
-    
+
     checkUser();
   }, [navigate]);
 
@@ -110,18 +172,18 @@ export function Dashboard() {
   };
 
   const fetchAllScripts = async () => {
-     try {
-       setLoading(true);
-       const data = await mockApi.getAllUserScripts();
-       setScripts(data);
-       setShowAllScripts(true);
-     } catch (error) {
-       console.error('Failed to fetch all scripts:', error);
-       showAlert('error', error instanceof Error ? error.message : 'Failed to fetch all scripts');
-     } finally {
-       setLoading(false);
-     }
-   };
+    try {
+      setLoading(true);
+      const data = await mockApi.getAllUserScripts();
+      setScripts(data);
+      setShowAllScripts(true);
+    } catch (error) {
+      console.error('Failed to fetch all scripts:', error);
+      showAlert('error', error instanceof Error ? error.message : 'Failed to fetch all scripts');
+    } finally {
+      setLoading(false);
+    }
+  };
 
   useEffect(() => {
     if (activeSection === 'scripts') {
@@ -147,8 +209,21 @@ export function Dashboard() {
   const handleScriptCreated = () => {
     fetchScripts();
     setShowAllScripts(false);
+    setTag('action', 'after script created');
   };
-
+  
+  const handleFeedbackClick = () => {
+    setIsFeedbackOpen(true);
+    console.log("Opening feedback panel");
+    
+    // Comment out Formbricks tracking
+    /*
+    // Track this action in Formbricks
+    formbricks.track("feedback_button_click")
+      .catch(error => console.error("Failed to track feedback button click:", error));
+    */
+  };
+  
   const handleScriptClick = (script: Script) => {
     try {
       const initialView = script.creation_method === 'WITH_AI' ? 'beats' : 'script';
@@ -163,23 +238,23 @@ export function Dashboard() {
     fetchAllScripts();
   };
 
-   const handleDeleteScript = async (scriptId: string, e: React.MouseEvent) => {
-     e.stopPropagation();
-     try {
-       if (!window.confirm('Are you sure you want to delete this script?')) {
-         return;
-       }
-       setLoading(true);
-       await mockApi.deleteScript(scriptId);
-       setScripts(prevScripts => prevScripts.filter(script => script.id !== scriptId));
-       showAlert('success', 'Script deleted successfully');
-     } catch (error) {
-       console.error('Failed to delete script:', error);
-       showAlert('error', 'Problem in deletion, try again after sometime');
-     } finally {
-       setLoading(false);
-     }
-   };
+  const handleDeleteScript = async (scriptId: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    try {
+      if (!window.confirm('Are you sure you want to delete this script?')) {
+        return;
+      }
+      setLoading(true);
+      await mockApi.deleteScript(scriptId);
+      setScripts(prevScripts => prevScripts.filter(script => script.id !== scriptId));
+      showAlert('success', 'Script deleted successfully');
+    } catch (error) {
+      console.error('Failed to delete script:', error);
+      showAlert('error', 'Problem in deletion, try again after sometime');
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const handleChangeDisplayName = () => {
     showAlert('info', 'Change display name functionality coming soon.');
@@ -212,14 +287,14 @@ export function Dashboard() {
         {/* Script List Container */}
         <div className="bg-white rounded-lg shadow">
           <div className="px-6 py-4 border-b border-gray-200"><h3 className="text-lg font-semibold text-gray-900">Active Scripts</h3></div>
-          {loading ? ( <div className="px-6 py-8 text-center text-gray-500"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500 mx-auto mb-4"></div> Loading scripts...</div>
-          ) : scripts.length === 0 ? ( <div className="px-6 py-8 text-center text-gray-500"><FileText className="h-12 w-12 text-gray-300 mx-auto mb-4" /><p className="text-lg font-medium mb-2">No scripts yet</p><p className="text-sm">Create your first script by clicking the "Create New Script" button.</p></div>
+          {loading ? (<div className="px-6 py-8 text-center text-gray-500"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500 mx-auto mb-4"></div> Loading scripts...</div>
+          ) : scripts.length === 0 ? (<div className="px-6 py-8 text-center text-gray-500"><FileText className="h-12 w-12 text-gray-300 mx-auto mb-4" /><p className="text-lg font-medium mb-2">No scripts yet</p><p className="text-sm">Create your first script by clicking the "Create New Script" button.</p></div>
           ) : (
             <div>
               {/* Desktop view - Table */}
               <div className="hidden md:block"><div className="relative">
-                  <table className="min-w-full divide-y divide-gray-200"><thead className="bg-gray-50"><tr><th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-1/2">Script Name</th><th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-1/4">Genre</th><th scope="col" className="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider w-1/4">Type</th><th scope="col" className="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider w-16">Actions</th>{showAllScripts && <th className="w-[17px]"></th>}</tr></thead></table>
-                  <div className={`${showAllScripts ? 'max-h-[400px] overflow-y-auto' : ''}`}> <table className="min-w-full divide-y divide-gray-200"><tbody className="bg-white divide-y divide-gray-200">{getDisplayedScripts().map((script) => (<tr key={script.id} className="hover:bg-gray-50 cursor-pointer transition-colors duration-150" onClick={() => handleScriptClick(script)}><td className="px-6 py-4 whitespace-nowrap w-1/2"><div className="flex items-center"><Avatar name={script.name} size={32} className="flex-shrink-0 mr-4" variant="script" /><div className="text-sm font-medium text-gray-900">{script.name}</div></div></td><td className="px-6 py-4 whitespace-nowrap w-1/4"><span className="text-sm text-gray-600">{script.genre || 'Not specified'}</span></td><td className="px-6 py-4 whitespace-nowrap w-1/4 text-center"><span className={`px-2 py-1 text-xs font-medium rounded-full ${script.creation_method === 'WITH_AI' ? 'bg-blue-100 text-blue-800' : script.creation_method === 'UPLOAD' ? 'bg-purple-100 text-purple-800' : 'bg-gray-100 text-gray-800'}`}>{script.creation_method === 'WITH_AI' ? 'AI Assisted' : script.creation_method === 'UPLOAD' ? 'Uploaded' : 'Manual'}</span></td><td className="px-6 py-4 whitespace-nowrap w-16 text-center"><button onClick={(e) => handleDeleteScript(script.id, e)} className="text-gray-400 hover:text-red-600 transition-colors p-1 rounded-full hover:bg-red-50" title="Delete script"><Trash2 className="w-4 h-4" /></button></td></tr>))}</tbody></table></div>
+                <table className="min-w-full divide-y divide-gray-200"><thead className="bg-gray-50"><tr><th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-1/2">Script Name</th><th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-1/4">Genre</th><th scope="col" className="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider w-1/4">Type</th><th scope="col" className="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider w-16">Actions</th>{showAllScripts && <th className="w-[17px]"></th>}</tr></thead></table>
+                <div className={`${showAllScripts ? 'max-h-[400px] overflow-y-auto' : ''}`}> <table className="min-w-full divide-y divide-gray-200"><tbody className="bg-white divide-y divide-gray-200">{getDisplayedScripts().map((script) => (<tr key={script.id} className="hover:bg-gray-50 cursor-pointer transition-colors duration-150" onClick={() => handleScriptClick(script)}><td className="px-6 py-4 whitespace-nowrap w-1/2"><div className="flex items-center"><Avatar name={script.name} size={32} className="flex-shrink-0 mr-4" variant="script" /><div className="text-sm font-medium text-gray-900">{script.name}</div></div></td><td className="px-6 py-4 whitespace-nowrap w-1/4"><span className="text-sm text-gray-600">{script.genre || 'Not specified'}</span></td><td className="px-6 py-4 whitespace-nowrap w-1/4 text-center"><span className={`px-2 py-1 text-xs font-medium rounded-full ${script.creation_method === 'WITH_AI' ? 'bg-blue-100 text-blue-800' : script.creation_method === 'UPLOAD' ? 'bg-purple-100 text-purple-800' : 'bg-gray-100 text-gray-800'}`}>{script.creation_method === 'WITH_AI' ? 'AI Assisted' : script.creation_method === 'UPLOAD' ? 'Uploaded' : 'Manual'}</span></td><td className="px-6 py-4 whitespace-nowrap w-16 text-center"><button onClick={(e) => handleDeleteScript(script.id, e)} className="text-gray-400 hover:text-red-600 transition-colors p-1 rounded-full hover:bg-red-50" title="Delete script"><Trash2 className="w-4 h-4" /></button></td></tr>))}</tbody></table></div>
               </div></div>
               {/* Mobile view - Cards */}
               <div className="md:hidden"><div className={`${showAllScripts ? 'max-h-[70vh] overflow-y-auto' : ''}`}>{getDisplayedScripts().map((script) => (<div key={script.id} className="p-4 border-b border-gray-200 hover:bg-gray-50 cursor-pointer" onClick={() => handleScriptClick(script)}><div className="flex items-center mb-2"><Avatar name={script.name} size={32} className="flex-shrink-0 mr-3" variant="script" /><div className="font-medium">{script.name}</div></div><div className="flex justify-between text-sm"><div className="text-gray-600">{script.genre || 'Not specified'}</div><div className="text-center"><span className={`px-2 py-1 text-xs font-medium rounded-full ${script.creation_method === 'WITH_AI' ? 'bg-blue-100 text-blue-800' : script.creation_method === 'UPLOAD' ? 'bg-purple-100 text-purple-800' : 'bg-gray-100 text-gray-800'}`}>{script.creation_method === 'WITH_AI' ? 'AI Assisted' : script.creation_method === 'UPLOAD' ? 'Uploaded' : 'Manual'}</span></div></div><div className="mt-2 flex justify-end"><button onClick={(e) => handleDeleteScript(script.id, e)} className="text-gray-400 hover:text-red-600 transition-colors p-1 rounded-full hover:bg-red-50" title="Delete script"><Trash2 className="w-4 h-4" /></button></div></div>))}</div></div>
@@ -256,7 +331,7 @@ export function Dashboard() {
         {/* Feedback Trigger Section (Pushed to bottom) */}
         <div className="p-4 border-t border-gray-200 flex-shrink-0">
           <button
-            onClick={() => setIsFeedbackOpen(prev => !prev)}
+            onClick={handleFeedbackClick}
             className="flex items-center justify-between w-full p-2 rounded-md text-sm font-medium text-gray-700 hover:bg-gray-100 focus:outline-none focus:ring-2 focus:ring-offset-1 focus:ring-blue-500"
             aria-expanded={isFeedbackOpen}
           >
@@ -276,9 +351,9 @@ export function Dashboard() {
         {/* Header */}
         <header className="bg-white border-b border-gray-200 flex-shrink-0"> {/* Ensure header doesn't shrink */}
           <div className="flex items-center justify-between px-8 py-4">
-             <div className="flex items-center gap-4"><h1 className="text-xl font-semibold text-gray-900">Hello {user?.user_metadata?.full_name || user?.email} 👋</h1></div>
-             <div className="flex items-center gap-4"><div className="relative" ref={profileMenuRef}><button onClick={() => setShowProfileMenu(!showProfileMenu)} className="flex items-center gap-2 p-2 hover:bg-gray-100 rounded-lg">{user?.user_metadata?.avatar_url ? (<img src={user.user_metadata.avatar_url} alt="Profile" className="h-8 w-8 rounded-full" />) : (<Avatar name={user?.user_metadata?.full_name || user?.email || 'User'} size={32} className="flex-shrink-0" variant="profile" />)}<ChevronDown className="h-4 w-4 text-gray-600" /></button>{showProfileMenu && (<div className="absolute right-0 mt-2 w-64 bg-white rounded-lg shadow-lg border border-gray-200 z-50"> {/* Increased z-index for dropdown */} <div className="p-4 border-b border-gray-200"><p className="font-semibold text-gray-900 truncate">{user?.user_metadata?.full_name || user?.email}</p><p className="text-sm text-gray-600 truncate">{user?.email}</p></div><div className="py-2"><button onClick={() => { setShowAccountSettingsModal(true); setShowProfileMenu(false); }} className="flex w-full items-center gap-3 px-4 py-2 text-sm text-gray-700 hover:bg-gray-50"><Settings className="h-4 w-4" /> Account Settings</button><button onClick={handleSignOut} className="flex w-full items-center gap-3 px-4 py-2 text-sm text-gray-700 hover:bg-gray-50"><LogOut className="h-4 w-4" /> Sign out</button></div></div>)}</div></div>
-           </div>
+            <div className="flex items-center gap-4"><h1 className="text-xl font-semibold text-gray-900">Hello {user?.user_metadata?.full_name || user?.email} 👋</h1></div>
+            <div className="flex items-center gap-4"><div className="relative" ref={profileMenuRef}><button onClick={() => setShowProfileMenu(!showProfileMenu)} className="flex items-center gap-2 p-2 hover:bg-gray-100 rounded-lg">{user?.user_metadata?.avatar_url ? (<img src={user.user_metadata.avatar_url} alt="Profile" className="h-8 w-8 rounded-full" />) : (<Avatar name={user?.user_metadata?.full_name || user?.email || 'User'} size={32} className="flex-shrink-0" variant="profile" />)}<ChevronDown className="h-4 w-4 text-gray-600" /></button>{showProfileMenu && (<div className="absolute right-0 mt-2 w-64 bg-white rounded-lg shadow-lg border border-gray-200 z-50"> {/* Increased z-index for dropdown */} <div className="p-4 border-b border-gray-200"><p className="font-semibold text-gray-900 truncate">{user?.user_metadata?.full_name || user?.email}</p><p className="text-sm text-gray-600 truncate">{user?.email}</p></div><div className="py-2"><button onClick={() => { setShowAccountSettingsModal(true); setShowProfileMenu(false); }} className="flex w-full items-center gap-3 px-4 py-2 text-sm text-gray-700 hover:bg-gray-50"><Settings className="h-4 w-4" /> Account Settings</button><button onClick={handleSignOut} className="flex w-full items-center gap-3 px-4 py-2 text-sm text-gray-700 hover:bg-gray-50"><LogOut className="h-4 w-4" /> Sign out</button></div></div>)}</div></div>
+          </div>
         </header>
         {/* Main scrollable content */}
         <main className="flex-1 p-8 overflow-y-auto"> {/* Make this the scrolling container */}
@@ -292,26 +367,38 @@ export function Dashboard() {
       {/* Uses fixed positioning and z-30 to overlay */}
       <div
         className={`
-          fixed bottom-0 left-0 h-full w-[500px]                               /* Position fixed, size */
-          bg-white shadow-xl border-r border-gray-200                   /* Appearance */
-          transform transition-transform duration-300 ease-in-out       /* Base transition properties */
-          z-30                                                          /* Ensure it's above other content */
-          ${isFeedbackOpen ? 'translate-x-64' : '-translate-x-full'}   /* Slide logic */
+          fixed bottom-0 left-0 h-full w-[500px]                             
+          bg-white shadow-xl border-r border-gray-200                   
+          transform transition-transform duration-300 ease-in-out       
+          z-30                                                          
+          ${isFeedbackOpen ? 'translate-x-64' : '-translate-x-full'}   
         `}
-        // Optionally set a calculated height minus header/footer if needed
-        // style={{ height: 'calc(100vh - YOUR_HEADER_HEIGHT_HERE)' }}
       >
-         {/* Panel Header */}
-         <div className="p-4 border-b flex justify-between items-center flex-shrink-0 bg-gray-50">
-             <h3 className="font-semibold text-gray-800">Feedback</h3>
-             <button onClick={() => setIsFeedbackOpen(false)} className="p-1 text-gray-500 hover:text-gray-700 rounded-full hover:bg-gray-200">
-                 <CloseIcon className="h-5 w-5" />
-             </button>
-         </div>
-         {/* Scrollable Typeform Container */}
-        <div className="p-4 overflow-y-auto h-full pb-16"> {/* Adjust padding/height as needed */}
-            {/* This div will be targeted by Typeform's script */}
-            <div data-tf-live="01JS70WNYT1ZTBAPHZPQPT6ERV"></div>
+        {/* Panel Header */}
+        <div className="p-4 border-b flex justify-between items-center flex-shrink-0 bg-gray-50">
+          <h3 className="font-semibold text-gray-800">Feedback</h3>
+          <button onClick={() => setIsFeedbackOpen(false)} className="p-1 text-gray-500 hover:text-gray-700 rounded-full hover:bg-gray-200">
+            <CloseIcon className="h-5 w-5" />
+          </button>
+        </div>
+
+        {/* Replace Formbricks with iframe */}
+        {/* 
+        <div className="p-4 overflow-y-auto h-full pb-16">
+          <FormbricksFeedback environmentId="cma214b402gfgvx013ozpppvv" />
+        </div>
+        */}
+        
+        {/* YouForm Iframe Implementation */}
+        <div className="h-full overflow-hidden">
+          <iframe 
+            src="https://app.youform.com/forms/zksc5geg" 
+            loading="lazy" 
+            width="100%" 
+            height="100%"
+            title="User Feedback Form"
+            className="w-full h-full"
+          ></iframe>
         </div>
       </div>
       {/* --- End Feedback Panel --- */}

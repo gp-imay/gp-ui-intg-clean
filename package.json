@@ -10,7 +10,12 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@formbricks/js": "^4.1.0",
     "@lottiefiles/dotlottie-react": "^0.13.3",
+    "@microsoft/applicationinsights-clickanalytics-js": "^3.3.6",
+    "@microsoft/applicationinsights-react-js": "^18.3.6",
+    "@microsoft/applicationinsights-web": "^3.3.6",
+    "@microsoft/clarity": "^1.0.0",
     "@supabase/supabase-js": "^2.49.1",
     "@tiptap/core": "^2.2.4",
     "@tiptap/extension-highlight": "^2.2.4",
@@ -21,11 +26,13 @@
     "@tiptap/react": "^2.2.4",
     "@tiptap/starter-kit": "^2.2.4",
     "@typeform/embed-react": "^4.4.0",
+    "clarity-js": "^0.8.6",
     "lottie-react": "^2.4.1",
     "lucide-react": "^0.344.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "react-draggable": "^4.4.6",
+    "react-joyride": "^2.9.3",
     "react-router-dom": "^7.3.0",
     "react-xarrows": "^2.0.2",
     "zustand": "^5.0.3"
