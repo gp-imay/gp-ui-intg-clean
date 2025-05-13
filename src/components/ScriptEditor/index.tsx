@@ -874,7 +874,7 @@ export function ScriptEditor({ scriptId, initialViewMode = 'script', scriptState
               Back to Home</button></div></div></div>);
   }
 
-  const handleRequestExpansion = async (comp_id: string, actionType: AIActionType) => {
+  const handleRequestExpansionOld = async (comp_id: string, actionType: AIActionType) => {
     if (!comp_id) { showAlert('error', 'Cannot perform AI action: Missing component ID'); return; }
     try {
       setIsLoadingExpansion(true); setIsRightSidebarOpen(true); setExpansionResults(null);
@@ -889,26 +889,126 @@ export function ScriptEditor({ scriptId, initialViewMode = 'script', scriptState
     } catch (error) { showAlert('error', error instanceof Error ? error.message : 'Failed to perform AI action');
     } finally { setIsLoadingExpansion(false); }
   };
+  const handleRequestExpansion = async (componentIdToExpand: string, actionType: AIActionType) => {
+    if (!componentIdToExpand) {
+      showAlert('error', 'Cannot perform AI action: Missing component ID.');
+      setIsRightSidebarOpen(false); // Close right panel on error
+      return;
+    }
 
-  const handleApplyTransform = async (alternativeText: string, expansionKey: ExpansionType) => {
-    if (!activeExpansionComponentId || !activeExpansionActionType) { showAlert('error', 'Cannot apply: No active transformation.'); return; }
+    // Find the element to check if it's new and unsaved
+    const targetElement = elementsRef.current.find(el => el.componentId === componentIdToExpand);
+
+    // Check if the componentId is temporary (meaning it's new and not saved yet)
+    // or if there are general unsaved changes that might affect context.
+    if ((targetElement && targetElement.isNew) || isTemporaryId(componentIdToExpand) || hasUnsavedChanges) {
+      showAlert('warning', 'Please save your script before using AI actions');
+      setIsRightSidebarOpen(false); // Close right panel
+      return;
+    }
+
+    console.log("Requesting AI action for:", componentIdToExpand, "Action:", actionType);
     try {
       setIsLoadingExpansion(true);
-      const response = await api.applyTransform(activeExpansionComponentId, expansionKey, alternativeText);
+      setIsRightSidebarOpen(true); // Ensure panel is open for results or loading state
+      setExpansionResults(null);
+      setActiveExpansionComponentId(null);
+      setActiveExpansionActionType(null);
+
+      let results: ExpandComponentResponse | null = null;
+      if (actionType === "expand") results = await api.expandComponent(componentIdToExpand);
+      else if (actionType === "shorten") results = await api.shortenComponent(componentIdToExpand);
+      else if (actionType === "continue") results = await api.continueComponent(componentIdToExpand);
+      else if (actionType === "rewrite") results = await api.rewriteComponent(componentIdToExpand);
+      
+      if (results) {
+        setExpansionResults(results);
+        setActiveExpansionComponentId(componentIdToExpand);
+        setActiveExpansionActionType(actionType);
+      } else {
+        // This case might occur if the API successfully processes but returns no suggestions for a valid reason.
+        showAlert('info', `AI action '${actionType}' did not return specific suggestions for this content.`);
+        // Decide if you want to close the panel here or let the user see the "no suggestions" message in the panel.
+        // For now, let's keep it open to show that the request was processed.
+      }
+    } catch (error) {
+      console.error('Failed to perform AI action:', error);
+      // The image showed "Invalid request parameters" which is a specific API error.
+      // You might want to customize the message based on the error type if possible.
+      const errorMessage = error instanceof Error ? error.message : 'Failed to perform AI action.';
+      if (errorMessage.includes("Invalid request parameters") || (error as any)?.response?.status === 422) {
+         showAlert('error', 'AI Assistant could not process the request. Please ensure the content is saved and try again.');
+      } else {
+         showAlert('error', errorMessage);
+      }
+      setIsRightSidebarOpen(false); // Close right panel on any error
+    } finally {
+      setIsLoadingExpansion(false);
+    }
+  };
+
+
+
+  const handleApplyTransform = async (alternativeText: string, expansionKey: ExpansionType) => {
+    if (!activeExpansionComponentId || !activeExpansionActionType) {
+      showAlert('error', 'Cannot apply changes: No active transformation context.');
+      return;
+    }
+
+    // Log which specific expansion (like 'concise') is being applied, 
+    // and what the original AI action type was.
+    console.log(`Applying expansionKey '${expansionKey}' (from original AI action '${activeExpansionActionType}') to component ${activeExpansionComponentId} with text:`, alternativeText);
+
+    try {
+      setIsLoadingExpansion(true); // Show loading indicator
+
+      // Call the API with activeExpansionActionType as the transform_type
+      const response = await api.applyTransform(
+        activeExpansionComponentId,
+        activeExpansionActionType, // Use the original AIActionType that initiated the suggestions
+        alternativeText
+      );
+
       if (response.component) {
+        // Update the specific element in the state
         setElements(prevElements =>
           prevElements.map(el => {
+            // Find the element matching the component ID from the response
             if (el.componentId === response.component.id) {
-              if(!isTemporaryId(el.componentId)) { modifiedComponentIdsRef.current.add(el.componentId); setHasUnsavedChanges(true); }
-              return { ...el, content: response.component.content || '' };
-            } return el;
+              console.log(`Updating element content for componentId: ${el.componentId}`);
+              // Mark as modified if it's not a temporary (newly created on frontend) component
+              // and the content has actually changed.
+              const contentChanged = el.content !== (response.component.content || '');
+              if (!isTemporaryId(el.componentId) && contentChanged) {
+                  modifiedComponentIdsRef.current.add(el.componentId);
+                  setHasUnsavedChanges(true);
+              }
+              return {
+                ...el,
+                content: response.component.content || '' // Update content
+                // Potentially update type if component_type changed, though unlikely for transforms
+                // type: mapComponentTypeToElementType(response.component.component_type) || el.type,
+              };
+            }
+            return el; // Return unchanged elements
           })
         );
-        showAlert('success', response.message || 'Changes applied!');
-        setExpansionResults(null); setActiveExpansionComponentId(null); setActiveExpansionActionType(null);
-      } else { throw new Error('API response missing updated component.'); }
-    } catch (error) { showAlert('error', error instanceof Error ? error.message : 'Failed to apply changes.');
-    } finally { setIsLoadingExpansion(false); }
+        showAlert('success', response.message || 'Changes applied successfully!');
+
+        // Clear expansion state after applying
+        setExpansionResults(null);
+        setActiveExpansionComponentId(null);
+        setActiveExpansionActionType(null);
+        // setIsRightSidebarOpen(false); // Optionally close sidebar after applying
+      } else {
+        throw new Error('API response did not contain the updated component.');
+      }
+    } catch (error) {
+      console.error('Failed to apply transform:', error);
+      showAlert('error', error instanceof Error ? error.message : 'Failed to apply changes.');
+    } finally {
+      setIsLoadingExpansion(false); // Hide loading indicator
+    }
   };
 
   const isScriptEffectivelyEmpty = elementsRef.current.length === 1 && elementsRef.current[0].type === 'scene-heading' && elementsRef.current[0].content === '' && isTemporaryId(elementsRef.current[0].sceneSegmentId);
