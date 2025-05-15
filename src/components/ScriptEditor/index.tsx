@@ -13,7 +13,7 @@ import { SettingsModal } from '../Settings';
 import { BeatSheetView } from '../BeatSheet/BeatSheetView';
 import { useAlert } from '../Alert';
 import { GenerateNextSceneButton } from '../GenerateNextSceneButton';
-import { api, mapApiResponseToScriptMetadata } from '../../services/api'; // Ensure api.ts also handles new ID logic
+import { api, mapApiResponseToScriptMetadata } from '../../services/api';
 import { useParams } from 'react-router-dom';
 import { ExpandComponentResponse, ExpansionType } from '../../services/api';
 
@@ -53,6 +53,7 @@ interface ScriptEditorProps {
 
 const DEFAULT_SEGMENT_POSITION_INCREMENT = 1000;
 const DEFAULT_COMPONENT_POSITION_INCREMENT = 1000;
+const UNSAVED_REMINDER_INTERVAL = 5 * 60 * 1000; // 5 minutes for a less intrusive reminder
 
 export function ScriptEditor({ scriptId, initialViewMode = 'script', scriptState }: ScriptEditorProps) {
   const loadedScriptIdRef = useRef<string | null>(null);
@@ -62,16 +63,15 @@ export function ScriptEditor({ scriptId, initialViewMode = 'script', scriptState
     return `temp-${prefix}-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
   };
   
-  // Helper to generate unique frontend ID for elements, ensuring React keys are unique
   const generateFrontendElementId = () => `fe-${Date.now()}-${Math.random().toString(36).substring(2,9)}`;
 
 
   const [elements, setElements] = useState<ScriptElementType[]>([
     { 
-      id: generateFrontendElementId(), // Unique frontend ID for React key
+      id: generateFrontendElementId(), 
       type: 'scene-heading', 
       content: '', 
-      componentId: generateTemporaryId('el'), // Temporary ID for backend mapping if new
+      componentId: generateTemporaryId('el'), 
       sceneSegmentId: generateTemporaryId('seg'),
       segmentPosition: DEFAULT_SEGMENT_POSITION_INCREMENT, 
       position: DEFAULT_COMPONENT_POSITION_INCREMENT, 
@@ -85,8 +85,9 @@ export function ScriptEditor({ scriptId, initialViewMode = 'script', scriptState
   const initialElementsRef = useRef<ScriptElementType[]>([]);
 
   const modifiedComponentIdsRef = useRef(new Set<string>());
-  const deletedComponentIdsRef = useRef(new Set<string>()); // Stores backend component IDs
-  const deletedSegmentIdsRef = useRef(new Set<string>());   // Stores backend segment IDs
+  const deletedComponentIdsRef = useRef(new Set<string>()); 
+  const deletedSegmentIdsRef = useRef(new Set<string>());   
+  const loadedSegmentIdsRef = useRef<Set<string>>(new Set()); // Declaration for loadedSegmentIdsRef
 
   const [isLeftSidebarOpen, setIsLeftSidebarOpen] = useState(true);
   const [isRightSidebarOpen, setIsRightSidebarOpen] = useState(false);
@@ -136,21 +137,84 @@ export function ScriptEditor({ scriptId, initialViewMode = 'script', scriptState
   const [beatsAvailable, setBeatsAvailable] = useState(true);
   const [scriptMetadata, setScriptMetadata] = useState<ScriptMetadata | null>(null);
   const { user } = useAuth();
+  const unsavedChangesTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const isInitialLoadCompleteRef = useRef(false);
+
 
   const isTemporaryId = (id: string | undefined): boolean => {
     return !!id && id.startsWith('temp-');
   };
   
-  // This useEffect is crucial for establishing the "baseline" of elements.
-  // It runs after the script is loaded OR after a successful save.
+  // useEffect(() => {
+  //   console.log("Updating initialElementsRef. Current elements count:", elements.length, "Triggered by isLoadingScript or saveCycle or elements array change.");
+  //   initialElementsRef.current = JSON.parse(JSON.stringify(elements)); 
+  //   modifiedComponentIdsRef.current.clear();
+  //   deletedComponentIdsRef.current.clear();
+  //   deletedSegmentIdsRef.current.clear();
+  //   setHasUnsavedChanges(false); 
+  // }, [isLoadingScript, saveCycle, elements]); 
+
   useEffect(() => {
-    console.log("Updating initialElementsRef. Current elements count:", elements.length, "Triggered by isLoadingScript or saveCycle or elements array change.");
-    initialElementsRef.current = JSON.parse(JSON.stringify(elements)); // Deep copy
-    modifiedComponentIdsRef.current.clear();
-    deletedComponentIdsRef.current.clear();
-    deletedSegmentIdsRef.current.clear();
-    setHasUnsavedChanges(false); // Reset flag after establishing a new baseline
-  }, [isLoadingScript, saveCycle, elements]); // IMPORTANT: `elements` is now a dependency.
+    // This effect is for resetting the 'baseline' for changes after an initial load or a successful save.
+
+    // Check if initial loading is just finishing
+    if (!isLoadingScript && !isInitialLoadCompleteRef.current) {
+        console.log("Initial script load complete. Resetting change tracking state.");
+        initialElementsRef.current = JSON.parse(JSON.stringify(elements));
+        modifiedComponentIdsRef.current.clear();
+        deletedComponentIdsRef.current.clear();
+        deletedSegmentIdsRef.current.clear();
+        setHasUnsavedChanges(false);
+        isInitialLoadCompleteRef.current = true; // Mark initial load as complete
+    } else if (saveCycle > 0 && !isLoadingScript && isInitialLoadCompleteRef.current) {
+        // This condition checks if saveCycle has incremented (meaning a save occurred)
+        // and we are not in a loading state.
+        // We also check isInitialLoadCompleteRef to ensure this only runs after initial load.
+        console.log("Save cycle incremented. Resetting change tracking state post-save.");
+        initialElementsRef.current = JSON.parse(JSON.stringify(elements));
+        modifiedComponentIdsRef.current.clear();
+        deletedComponentIdsRef.current.clear();
+        deletedSegmentIdsRef.current.clear();
+        setHasUnsavedChanges(false);
+    }
+}, [isLoadingScript, saveCycle, elements]); // `elements` is needed to correctly snapshot initialElementsRef after changes.
+  // Effect for "beforeunload" prompt
+  useEffect(() => {
+    const handleBeforeUnload = (event: BeforeUnloadEvent) => {
+      if (hasUnsavedChanges) {
+        event.preventDefault();
+        event.returnValue = 'You have unsaved changes. Are you sure you want to leave?';
+      }
+    };
+
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => {
+      window.removeEventListener('beforeunload', handleBeforeUnload);
+    };
+  }, [hasUnsavedChanges]);
+
+  // Effect for periodic unsaved changes reminder
+  useEffect(() => {
+    if (hasUnsavedChanges) {
+      if (unsavedChangesTimerRef.current) {
+        clearTimeout(unsavedChangesTimerRef.current);
+      }
+      unsavedChangesTimerRef.current = setTimeout(() => {
+        showAlert('info', 'You have unsaved changes. Remember to save your work!');
+      }, UNSAVED_REMINDER_INTERVAL);
+    } else {
+      if (unsavedChangesTimerRef.current) {
+        clearTimeout(unsavedChangesTimerRef.current);
+        unsavedChangesTimerRef.current = null;
+      }
+    }
+    return () => {
+      if (unsavedChangesTimerRef.current) {
+        clearTimeout(unsavedChangesTimerRef.current);
+      }
+    };
+  }, [hasUnsavedChanges, showAlert]);
+
 
   const handleViewModeChange = (mode: ViewMode) => {
     if (mode === 'beats' && !beatsAvailable) {
@@ -189,14 +253,17 @@ export function ScriptEditor({ scriptId, initialViewMode = 'script', scriptState
         const metadata = await api.getScriptMetadata(scriptId);
         setTitle(metadata.title || `Script ${scriptId.slice(0, 8)}`);
         const mappedMeta = mapApiResponseToScriptMetadata(metadata);
-        setScriptMetadata(mappedMeta);
+        setScriptMetadata(mappedMeta); 
         setBeatsAvailable(mappedMeta.creationMethod === 'WITH_AI');
 
         const initialSegmentsResponse = await api.getScriptSegments(scriptId, 0, 20);
         if (initialSegmentsResponse && initialSegmentsResponse.segments.length > 0) {
+          // IMPORTANT: Ensure api.ts's convertSegmentsToScriptElements accepts and uses generateFrontendElementId
+          // If it does not, this call will cause a TypeScript error.
+          // You MUST update api.ts for this to work as intended for unique frontend keys.
           const fetchedElements = api.convertSegmentsToScriptElements(initialSegmentsResponse.segments, [], generateFrontendElementId);
           const processedElements = fetchedElements.map(el => ({ ...el, isNew: false }));
-          setElements(processedElements); // This triggers initialElementsRef update via its own useEffect
+          setElements(processedElements); 
           if (processedElements.length > 0) {
             setSelectedElement(processedElements[0].id);
             const lastSegment = initialSegmentsResponse.segments[initialSegmentsResponse.segments.length - 1];
@@ -204,9 +271,9 @@ export function ScriptEditor({ scriptId, initialViewMode = 'script', scriptState
           }
         } else if (metadata.creation_method === 'FROM_SCRATCH') {
           const tempSegId = generateTemporaryId('seg');
-          const tempCompId = generateTemporaryId('el'); // This will be the componentId
+          const tempCompId = generateTemporaryId('el'); 
           const initialElement: ScriptElementType = {
-            id: generateFrontendElementId(), // Unique frontend key
+            id: generateFrontendElementId(), 
             type: 'scene-heading', content: '', componentId: tempCompId,
             sceneSegmentId: tempSegId, segmentPosition: DEFAULT_SEGMENT_POSITION_INCREMENT,
             position: DEFAULT_COMPONENT_POSITION_INCREMENT, isNew: true
@@ -214,7 +281,7 @@ export function ScriptEditor({ scriptId, initialViewMode = 'script', scriptState
           setElements([initialElement]);
           setSelectedElement(initialElement.id);
         } else {
-          setElements([]);
+          setElements([]); 
         }
         if (scriptState.context.scenesCount > 0) setHasCompletedFirstScene(true);
       } catch (error) {
@@ -229,18 +296,12 @@ export function ScriptEditor({ scriptId, initialViewMode = 'script', scriptState
 
   const handleGeneratedScriptElements = (generatedElements: ScriptElementType[], sceneSegmentId: string) => {
     setCurrentSceneSegmentId(sceneSegmentId);
-    loadedSegmentIdsRef.current.add(sceneSegmentId);
-
-    // Ensure each incoming element gets a unique frontend 'id'
+    loadedSegmentIdsRef.current.add(sceneSegmentId); // Use the correctly declared ref
     const processedGeneratedElements = generatedElements.map(el => ({
-      ...el,
-      isNew: false, 
-      id: generateFrontendElementId() // Assign new unique frontend ID
+      ...el, isNew: false, id: generateFrontendElementId() 
     }));
-    
     const isEditorEffectivelyEmpty = elements.length === 0 ||
       (elements.length === 1 && elements[0].type === 'scene-heading' && elements[0].content === '' && isTemporaryId(elements[0].sceneSegmentId));
-
     let finalElementsToSet: ScriptElementType[];
     if (isEditorEffectivelyEmpty) {
       finalElementsToSet = processedGeneratedElements;
@@ -266,14 +327,9 @@ export function ScriptEditor({ scriptId, initialViewMode = 'script', scriptState
         finalElementsToSet.push(...segmentElems);
       });
     }
-    
-    setElements(finalElementsToSet); // This triggers initialElementsRef update via its own useEffect
-    if (processedGeneratedElements.length > 0) {
-      setSelectedElement(processedGeneratedElements[0].id);
-    }
-    setHasCompletedFirstScene(true);
-    setActiveTab('scenes');
-    setHasUnsavedChanges(false); // API data is "saved"
+    setElements(finalElementsToSet); 
+    if (processedGeneratedElements.length > 0) setSelectedElement(processedGeneratedElements[0].id);
+    setHasCompletedFirstScene(true); setActiveTab('scenes'); setHasUnsavedChanges(false); 
   };
 
   const handleChangeDisplayName = () => showAlert('info', 'Change display name functionality coming soon.');
@@ -286,12 +342,11 @@ export function ScriptEditor({ scriptId, initialViewMode = 'script', scriptState
       const result = await api.generateNextScene(scriptId, currentSceneSegmentId || '');
       if (result.success && result.generated_segment?.components) {
         setCurrentSceneSegmentId(result.scene_segment_id || null);
-        const newApiElements = api.convertSceneComponentsToElements(result.generated_segment.components, generateFrontendElementId)
+        const newApiElements = api.convertSceneComponentsToElements(result.generated_segment.components)
             .map(el => ({ ...el, isNew: false }));
         setElements(prev => [...prev, ...newApiElements]);
         if (newApiElements.length > 0) setSelectedElement(newApiElements[0].id);
-        showAlert('success', 'Next scene generated successfully');
-        setHasUnsavedChanges(false);
+        showAlert('success', 'Next scene generated successfully'); setHasUnsavedChanges(false);
       } else { throw new Error(result.error || 'No script components were generated or operation failed'); }
     } catch (error) {
       showAlert('error', error instanceof Error ? error.message : 'Failed to generate next scene');
@@ -305,13 +360,12 @@ export function ScriptEditor({ scriptId, initialViewMode = 'script', scriptState
       const result = await api.generateScript(scriptId);
       if (result.success && result.generated_segment?.components) {
         setCurrentSceneSegmentId(result.scene_segment_id || null);
-        const scriptApiElements = api.convertSceneComponentsToElements(result.generated_segment.components, generateFrontendElementId)
+        const scriptApiElements = api.convertSceneComponentsToElements(result.generated_segment.components)
             .map(el => ({ ...el, isNew: false }));
         setElements(scriptApiElements);
         if (scriptApiElements.length > 0) setSelectedElement(scriptApiElements[0].id);
         setHasCompletedFirstScene(true); setActiveTab('scenes'); handleViewModeChange('script');
-        showAlert('success', 'Script generated successfully');
-        setHasUnsavedChanges(false);
+        showAlert('success', 'Script generated successfully'); setHasUnsavedChanges(false);
       } else { throw new Error(result.error || 'No script components were generated or operation failed'); }
     } catch (error) {
       showAlert('error', error instanceof Error ? error.message : 'Failed to generate script');
@@ -324,13 +378,17 @@ export function ScriptEditor({ scriptId, initialViewMode = 'script', scriptState
   };
   const getSceneText = (content: string) => stripHtml(content).trim();
 
+  const elementsRef = useRef(elements);
+  useEffect(() => {
+      elementsRef.current = elements;
+  }, [elements]);
+
   const createNewElement = useCallback((type: ElementType, afterId: string): string => {
-    const currentElements = elementsRef.current; // Use ref for reading current elements
+    const currentElements = elementsRef.current; 
     const afterElementIndex = currentElements.findIndex(el => el.id === afterId);
     const afterElement = afterElementIndex !== -1 ? currentElements[afterElementIndex] : currentElements[currentElements.length - 1];
 
     if (!afterElement && currentElements.length > 0) {
-        console.error(`Cannot create new element: 'afterElement' (ID: ${afterId}) not found. Elements:`, JSON.parse(JSON.stringify(currentElements)));
         const newIdFallback = generateFrontendElementId();
         const fallbackElement: ScriptElementType = {
             id: newIdFallback, componentId: generateTemporaryId('el'), type, content: '',
@@ -361,24 +419,34 @@ export function ScriptEditor({ scriptId, initialViewMode = 'script', scriptState
     let newComponentPosition: number;
 
     if (type === 'scene-heading') {
-      newSceneSegmentId = generateTemporaryId('seg');
-      const maxSegmentPos = currentElements
-        .filter(el => el.type === 'scene-heading' && typeof el.segmentPosition === 'number')
-        .reduce((max, el) => Math.max(max, el.segmentPosition!), 0);
-      newSegmentPosition = (maxSegmentPos || 0) + DEFAULT_SEGMENT_POSITION_INCREMENT;
-      newComponentPosition = DEFAULT_COMPONENT_POSITION_INCREMENT;
+      newSceneSegmentId = generateTemporaryId('seg'); // Keep this for the new segment's temporary ID
+
+      // Assign a Unix timestamp (milliseconds since epoch) as the segment position.
+      // This ensures uniqueness and a natural sort order for new segments.
+      newSegmentPosition = Date.now(); 
+
+      // The first component (the scene heading itself) in a new segment can still start at a default position.
+      newComponentPosition = DEFAULT_COMPONENT_POSITION_INCREMENT; // This is for components *within* the segment
+
     } else {
+      // Logic for other element types (components within an existing segment)
+      // This part should use the logic for component positioning we discussed previously.
       let segmentLeader = afterElement;
       if (afterElement.type !== 'scene-heading') {
-        for (let i = currentElements.findIndex(el => el.id === afterElement.id) -1; i >=0; i--) {
+        // Find the actual scene heading this component belongs to
+        const afterElementIndexInCurrent = currentElements.findIndex(el => el.id === afterId);
+        for (let i = afterElementIndexInCurrent -1; i >=0; i--) {
             if (currentElements[i].type === 'scene-heading') {
-                segmentLeader = currentElements[i];
+                segmentLeader = currentElements[i]; 
                 break;
             }
         }
       }
       newSceneSegmentId = segmentLeader.sceneSegmentId;
-      newSegmentPosition = segmentLeader.segmentPosition;
+      // Important: The newSegmentPosition for a non-scene-heading element
+      // should be the segmentPosition of its parent scene heading.
+      newSegmentPosition = segmentLeader.segmentPosition; 
+
       const elementsInSameSegment = currentElements.filter(el => el.sceneSegmentId === newSceneSegmentId);
       const maxComponentPosInSegment = elementsInSameSegment.reduce((max, el) => Math.max(max, el.position || 0), 0);
       newComponentPosition = (maxComponentPosInSegment || 0) + DEFAULT_COMPONENT_POSITION_INCREMENT;
@@ -399,14 +467,7 @@ export function ScriptEditor({ scriptId, initialViewMode = 'script', scriptState
     });
     setHasUnsavedChanges(true);
     return newFeId;
-  }, []); // Removed elements from dependency array, will use elementsRef
-
-  // Ref to keep track of the latest elements state for callbacks like createNewElement
-  const elementsRef = useRef(elements);
-  useEffect(() => {
-      elementsRef.current = elements;
-  }, [elements]);
-
+  }, []); 
 
   const handleNavigateElement = useCallback((currentId: string, direction: 'up' | 'down') => {
     const currentElements = elementsRef.current;
@@ -515,7 +576,7 @@ export function ScriptEditor({ scriptId, initialViewMode = 'script', scriptState
   };
 
   const generateSavePayload = (): ScriptChangesRequest => {
-    const currentElements = elementsRef.current; // Read from ref for consistency
+    const currentElements = elementsRef.current;
     const payload: ScriptChangesRequest = {
         changedSegments: {},
         deletedElements: Array.from(deletedComponentIdsRef.current).filter(id => !isTemporaryId(id)),
@@ -537,7 +598,6 @@ export function ScriptEditor({ scriptId, initialViewMode = 'script', scriptState
 
     segmentMap.forEach((segmentElementsFromMap, segmentId) => {
         segmentElementsFromMap.sort((a, b) => (a.position || 0) - (b.position || 0));
-        
         const apiComponentsForSegment: (Omit<ComponentChange, 'id'> & { id?: string, frontendId?: string } | Omit<NewComponentForSegment, 'frontendId'> & { frontendId: string } | Omit<NewComponentForExistingSegment, 'frontendId' | 'segment_id'> & { frontendId: string, segment_id: string })[] = [];
         let i = 0;
         while (i < segmentElementsFromMap.length) {
@@ -549,7 +609,6 @@ export function ScriptEditor({ scriptId, initialViewMode = 'script', scriptState
                 charName = stripHtml(el.content);
                 let dialogueEl: ScriptElementType | undefined = undefined;
                 let parenEl: ScriptElementType | undefined = undefined;
-
                 if (i + 1 < segmentElementsFromMap.length) {
                     if (segmentElementsFromMap[i+1].type === 'parenthetical') {
                         parenEl = segmentElementsFromMap[i+1];
@@ -561,27 +620,22 @@ export function ScriptEditor({ scriptId, initialViewMode = 'script', scriptState
                         dialogueEl = segmentElementsFromMap[i+1];
                     }
                 }
-
-                if (dialogueEl) { // Character + (Optional Parenthetical) + Dialogue
+                if (dialogueEl) { 
                     const isNew = el.isNew || isTemporaryId(el.componentId) || (parenEl && (parenEl.isNew || isTemporaryId(parenEl.componentId))) || (dialogueEl.isNew || isTemporaryId(dialogueEl.componentId));
-                    const baseCompId = dialogueEl.componentId; // Dialogue carries the main ID for consolidated
-                    
+                    const baseCompId = dialogueEl.componentId; 
                     const apiCompToAdd = {
                         component_type: ComponentTypeFE.DIALOGUE,
-                        position: el.position!, // Position of the character element
+                        position: el.position!, 
                         content: stripHtml(dialogueEl.content),
                         character_name: charName,
                         parenthetical: parenText,
                         ...(isNew || isTemporaryId(baseCompId) ? { frontendId: baseCompId } : { id: baseCompId })
                     };
                     apiComponentsForSegment.push(apiCompToAdd);
-                    
-                    // Mark original char/paren as processed if they were part of this DIALOGUE
                     if(!isTemporaryId(el.componentId)) modifiedComponentIdsRef.current.delete(el.componentId);
                     if(parenEl && !isTemporaryId(parenEl.componentId)) modifiedComponentIdsRef.current.delete(parenEl.componentId);
-
-                    i += (parenEl ? 2 : 1); // Move past dialogue and potentially parenthetical
-                } else { // Standalone character
+                    i += (parenEl ? 2 : 1); 
+                } else { 
                      apiComponentsForSegment.push({
                         component_type: mapElementTypeToComponentType(el.type),
                         position: el.position!, content: stripHtml(el.content),
@@ -589,7 +643,7 @@ export function ScriptEditor({ scriptId, initialViewMode = 'script', scriptState
                         ...(el.isNew || isTemporaryId(el.componentId) ? { frontendId: el.componentId } : { id: el.componentId })
                     });
                 }
-            } else { // Action, Scene Heading, Transition, or Dialogue/Parenthetical not part of a character sequence
+            } else { 
                  apiComponentsForSegment.push({
                     component_type: mapElementTypeToComponentType(el.type),
                     position: el.position!, content: stripHtml(el.content),
@@ -604,17 +658,16 @@ export function ScriptEditor({ scriptId, initialViewMode = 'script', scriptState
             if (!firstElement || apiComponentsForSegment.length === 0) return;
             payload.newSegments.push({
                 frontendId: segmentId,
-                segmentNumber: firstElement.segmentPosition!,
+                segmentNumber: Date.now(),
                 components: apiComponentsForSegment.filter(c => c.frontendId).map(c => ({...c, component_type: c.component_type as ComponentTypeFE } as NewComponentForSegment))
             });
-        } else { // Existing Segment
+        } else { 
             apiComponentsForSegment.forEach(apiComp => {
-                if (apiComp.frontendId) { // New component in existing segment
+                if (apiComp.frontendId) { 
                     payload.newComponentsInExistingSegments.push({
-                        ...(apiComp as NewComponentForSegment),
-                        segment_id: segmentId,
+                        ...(apiComp as NewComponentForSegment), segment_id: segmentId,
                     });
-                } else if (apiComp.id && modifiedComponentIdsRef.current.has(apiComp.id)) { // Modified existing component
+                } else if (apiComp.id && modifiedComponentIdsRef.current.has(apiComp.id)) { 
                     if (!payload.changedSegments[segmentId]) payload.changedSegments[segmentId] = [];
                     payload.changedSegments[segmentId].push(apiComp as ComponentChange);
                 }
@@ -627,7 +680,7 @@ export function ScriptEditor({ scriptId, initialViewMode = 'script', scriptState
 
   const handleSave = async () => {
     if (!scriptId) { showAlert('error', 'Script ID is missing. Cannot save.'); return; }
-    const hasAnyChanges = elements.some(el => el.isNew) ||
+    const hasAnyChanges = elementsRef.current.some(el => el.isNew) ||
                          modifiedComponentIdsRef.current.size > 0 ||
                          deletedComponentIdsRef.current.size > 0 ||
                          deletedSegmentIdsRef.current.size > 0;
@@ -653,13 +706,12 @@ export function ScriptEditor({ scriptId, initialViewMode = 'script', scriptState
             if (isTemporaryId(el.sceneSegmentId) && response.idMappings.segments[el.sceneSegmentId!]) {
               updatedEl.sceneSegmentId = response.idMappings.segments[el.sceneSegmentId!];
             }
-            // For componentId, ensure we use the mapping from the *dialogue* if it was consolidated
-            const originalComponentIdForMapping = el.componentId; // This is the temporary ID
+            const originalComponentIdForMapping = el.componentId; 
             if (isTemporaryId(originalComponentIdForMapping) && response.idMappings.components[originalComponentIdForMapping]) {
               updatedEl.componentId = response.idMappings.components[originalComponentIdForMapping];
             }
             return updatedEl;
-          }).filter(el => el != null) // Filter out nulls if any element was fully absorbed
+          }).filter(el => el != null) 
         );
         modifiedComponentIdsRef.current.clear(); deletedComponentIdsRef.current.clear(); deletedSegmentIdsRef.current.clear();
         setHasUnsavedChanges(false);
@@ -701,6 +753,7 @@ export function ScriptEditor({ scriptId, initialViewMode = 'script', scriptState
                         ...el, type: newType, sceneSegmentId: newTempSegmentId,
                         segmentPosition: newSegmentPosition, componentId: newFeComponentId,
                         position: DEFAULT_COMPONENT_POSITION_INCREMENT, isNew: true,
+                        id: generateFrontendElementId() 
                     };
                 } else {
                     const changingToNonHeadingFromHeading = oldType === 'scene-heading' && newType !== 'scene-heading';
@@ -725,7 +778,7 @@ export function ScriptEditor({ scriptId, initialViewMode = 'script', scriptState
     );
     if (originalComponentIdToDelete) deletedComponentIdsRef.current.add(originalComponentIdToDelete);
     setHasUnsavedChanges(true);
-  }, []); // Use elementsRef inside, so no 'elements' dependency
+  }, []); 
 
   const handleDeleteComment = (commentId: string) => { setComments(prev => prev.filter(c => c.id !== commentId)); setActiveCommentId(null); };
   const handleAddComment = (comment: Comment) => { setComments(prev => [...prev, comment]); setActiveCommentId(comment.id); };
@@ -810,7 +863,7 @@ export function ScriptEditor({ scriptId, initialViewMode = 'script', scriptState
     };
     document.addEventListener('keydown', handleKeyboardDelete);
     return () => document.removeEventListener('keydown', handleKeyboardDelete);
-  }, [selectedElement]); // Removed elements from dependency, use elementsRef
+  }, [selectedElement]); 
 
   useEffect(() => {
     const calculatePgs = () => {
@@ -823,13 +876,13 @@ export function ScriptEditor({ scriptId, initialViewMode = 'script', scriptState
     }; calculatePgs(); const resObs = new ResizeObserver(calculatePgs);
     if (contentRef.current) resObs.observe(contentRef.current);
     return () => resObs.disconnect();
-  }, [elements, formatSettings]); // elements dependency is fine here as it's about layout
+  }, [elements, formatSettings]); 
 
   useEffect(() => {
-    elementsRef.current.forEach(element => { // Use elementsRef
+    elementsRef.current.forEach(element => { 
       if (!elementRefs.current[element.id]) elementRefs.current[element.id] = React.createRef();
     });
-  }, [elements]); // elements dependency for creating refs
+  }, [elements]); 
 
   useEffect(() => {
     const prof = userProfiles.find(p => p.id === activeProfile);
@@ -859,6 +912,59 @@ export function ScriptEditor({ scriptId, initialViewMode = 'script', scriptState
 
   const handleRetry = () => { setHasAttemptedLoad(false); setLoadError(null); loadedScriptIdRef.current = null; };
 
+  const handleRequestExpansion = async (componentIdToExpand: string, actionType: AIActionType) => {
+    if (!componentIdToExpand) {
+      showAlert('error', 'Cannot perform AI action: Missing component ID.');
+      setIsRightSidebarOpen(false); 
+      return;
+    }
+    const targetElement = elementsRef.current.find(el => el.componentId === componentIdToExpand);
+    if ((targetElement && targetElement.isNew) || isTemporaryId(componentIdToExpand) || hasUnsavedChanges) {
+      showAlert('warning', 'Please save your script before using AI actions to ensure all content is processed.');
+      setIsRightSidebarOpen(false); 
+      return;
+    }
+    console.log("Requesting AI action for:", componentIdToExpand, "Action:", actionType);
+    try {
+      setIsLoadingExpansion(true); setIsRightSidebarOpen(true); 
+      setExpansionResults(null); setActiveExpansionComponentId(null); setActiveExpansionActionType(null);
+      let results: ExpandComponentResponse | null = null;
+      if (actionType === "expand") results = await api.expandComponent(componentIdToExpand);
+      else if (actionType === "shorten") results = await api.shortenComponent(componentIdToExpand);
+      else if (actionType === "continue") results = await api.continueComponent(componentIdToExpand);
+      else if (actionType === "rewrite") results = await api.rewriteComponent(componentIdToExpand);
+      if (results) { setExpansionResults(results); setActiveExpansionComponentId(componentIdToExpand); setActiveExpansionActionType(actionType); } 
+      else { showAlert('info', `AI action '${actionType}' did not return specific suggestions for this content.`); }
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Failed to perform AI action.';
+      if (errorMessage.includes("Invalid request parameters") || (error as any)?.response?.status === 422) {
+         showAlert('error', 'AI Assistant could not process the request. Please ensure the content is saved and try again.');
+      } else { showAlert('error', errorMessage); }
+      setIsRightSidebarOpen(false); 
+    } finally { setIsLoadingExpansion(false); }
+  };
+
+  const handleApplyTransform = async (alternativeText: string, expansionKey: ExpansionType) => {
+    if (!activeExpansionComponentId || !activeExpansionActionType) { showAlert('error', 'Cannot apply: No active transformation.'); return; }
+    try {
+      setIsLoadingExpansion(true);
+      const response = await api.applyTransform(activeExpansionComponentId, activeExpansionActionType, alternativeText); 
+      if (response.component) {
+        setElements(prevElements =>
+          prevElements.map(el => {
+            if (el.componentId === response.component.id) {
+              if(!isTemporaryId(el.componentId)) { modifiedComponentIdsRef.current.add(el.componentId); setHasUnsavedChanges(true); }
+              return { ...el, content: response.component.content || '' };
+            } return el;
+          })
+        );
+        showAlert('success', response.message || 'Changes applied!');
+        setExpansionResults(null); setActiveExpansionComponentId(null); setActiveExpansionActionType(null);
+      } else { throw new Error('API response missing updated component.'); }
+    } catch (error) { showAlert('error', error instanceof Error ? error.message : 'Failed to apply changes.');
+    } finally { setIsLoadingExpansion(false); }
+  };
+
   if (isLoadingScript && !hasAttemptedLoad) {
     return (<div className="h-screen bg-gray-100 flex items-center justify-center"><div className="bg-white rounded-lg shadow-lg p-6 text-center">
           <RefreshCw className="animate-spin rounded-full h-12 w-12 text-blue-500 mx-auto mb-4" />
@@ -873,145 +979,11 @@ export function ScriptEditor({ scriptId, initialViewMode = 'script', scriptState
             <button onClick={() => window.location.href = '/'} className="px-4 py-2 border border-gray-300 text-gray-700 rounded-md hover:bg-gray-50">
               Back to Home</button></div></div></div>);
   }
-
-  const handleRequestExpansionOld = async (comp_id: string, actionType: AIActionType) => {
-    if (!comp_id) { showAlert('error', 'Cannot perform AI action: Missing component ID'); return; }
-    try {
-      setIsLoadingExpansion(true); setIsRightSidebarOpen(true); setExpansionResults(null);
-      setActiveExpansionComponentId(null); setActiveExpansionActionType(null);
-      let results: ExpandComponentResponse | null = null;
-      if (actionType === "expand") results = await api.expandComponent(comp_id);
-      else if (actionType === "shorten") results = await api.shortenComponent(comp_id);
-      else if (actionType === "continue") results = await api.continueComponent(comp_id);
-      else if (actionType === "rewrite") results = await api.rewriteComponent(comp_id);
-      if (results) { setExpansionResults(results); setActiveExpansionComponentId(comp_id); setActiveExpansionActionType(actionType); } 
-      else { showAlert('info', `AI action '${actionType}' did not return results.`); }
-    } catch (error) { showAlert('error', error instanceof Error ? error.message : 'Failed to perform AI action');
-    } finally { setIsLoadingExpansion(false); }
-  };
-  const handleRequestExpansion = async (componentIdToExpand: string, actionType: AIActionType) => {
-    if (!componentIdToExpand) {
-      showAlert('error', 'Cannot perform AI action: Missing component ID.');
-      setIsRightSidebarOpen(false); // Close right panel on error
-      return;
-    }
-
-    // Find the element to check if it's new and unsaved
-    const targetElement = elementsRef.current.find(el => el.componentId === componentIdToExpand);
-
-    // Check if the componentId is temporary (meaning it's new and not saved yet)
-    // or if there are general unsaved changes that might affect context.
-    if ((targetElement && targetElement.isNew) || isTemporaryId(componentIdToExpand) || hasUnsavedChanges) {
-      showAlert('warning', 'Please save your script before using AI actions');
-      setIsRightSidebarOpen(false); // Close right panel
-      return;
-    }
-
-    console.log("Requesting AI action for:", componentIdToExpand, "Action:", actionType);
-    try {
-      setIsLoadingExpansion(true);
-      setIsRightSidebarOpen(true); // Ensure panel is open for results or loading state
-      setExpansionResults(null);
-      setActiveExpansionComponentId(null);
-      setActiveExpansionActionType(null);
-
-      let results: ExpandComponentResponse | null = null;
-      if (actionType === "expand") results = await api.expandComponent(componentIdToExpand);
-      else if (actionType === "shorten") results = await api.shortenComponent(componentIdToExpand);
-      else if (actionType === "continue") results = await api.continueComponent(componentIdToExpand);
-      else if (actionType === "rewrite") results = await api.rewriteComponent(componentIdToExpand);
-      
-      if (results) {
-        setExpansionResults(results);
-        setActiveExpansionComponentId(componentIdToExpand);
-        setActiveExpansionActionType(actionType);
-      } else {
-        // This case might occur if the API successfully processes but returns no suggestions for a valid reason.
-        showAlert('info', `AI action '${actionType}' did not return specific suggestions for this content.`);
-        // Decide if you want to close the panel here or let the user see the "no suggestions" message in the panel.
-        // For now, let's keep it open to show that the request was processed.
-      }
-    } catch (error) {
-      console.error('Failed to perform AI action:', error);
-      // The image showed "Invalid request parameters" which is a specific API error.
-      // You might want to customize the message based on the error type if possible.
-      const errorMessage = error instanceof Error ? error.message : 'Failed to perform AI action.';
-      if (errorMessage.includes("Invalid request parameters") || (error as any)?.response?.status === 422) {
-         showAlert('error', 'AI Assistant could not process the request. Please ensure the content is saved and try again.');
-      } else {
-         showAlert('error', errorMessage);
-      }
-      setIsRightSidebarOpen(false); // Close right panel on any error
-    } finally {
-      setIsLoadingExpansion(false);
-    }
-  };
-
-
-
-  const handleApplyTransform = async (alternativeText: string, expansionKey: ExpansionType) => {
-    if (!activeExpansionComponentId || !activeExpansionActionType) {
-      showAlert('error', 'Cannot apply changes: No active transformation context.');
-      return;
-    }
-
-    // Log which specific expansion (like 'concise') is being applied, 
-    // and what the original AI action type was.
-    console.log(`Applying expansionKey '${expansionKey}' (from original AI action '${activeExpansionActionType}') to component ${activeExpansionComponentId} with text:`, alternativeText);
-
-    try {
-      setIsLoadingExpansion(true); // Show loading indicator
-
-      // Call the API with activeExpansionActionType as the transform_type
-      const response = await api.applyTransform(
-        activeExpansionComponentId,
-        activeExpansionActionType, // Use the original AIActionType that initiated the suggestions
-        alternativeText
-      );
-
-      if (response.component) {
-        // Update the specific element in the state
-        setElements(prevElements =>
-          prevElements.map(el => {
-            // Find the element matching the component ID from the response
-            if (el.componentId === response.component.id) {
-              console.log(`Updating element content for componentId: ${el.componentId}`);
-              // Mark as modified if it's not a temporary (newly created on frontend) component
-              // and the content has actually changed.
-              const contentChanged = el.content !== (response.component.content || '');
-              if (!isTemporaryId(el.componentId) && contentChanged) {
-                  modifiedComponentIdsRef.current.add(el.componentId);
-                  setHasUnsavedChanges(true);
-              }
-              return {
-                ...el,
-                content: response.component.content || '' // Update content
-                // Potentially update type if component_type changed, though unlikely for transforms
-                // type: mapComponentTypeToElementType(response.component.component_type) || el.type,
-              };
-            }
-            return el; // Return unchanged elements
-          })
-        );
-        showAlert('success', response.message || 'Changes applied successfully!');
-
-        // Clear expansion state after applying
-        setExpansionResults(null);
-        setActiveExpansionComponentId(null);
-        setActiveExpansionActionType(null);
-        // setIsRightSidebarOpen(false); // Optionally close sidebar after applying
-      } else {
-        throw new Error('API response did not contain the updated component.');
-      }
-    } catch (error) {
-      console.error('Failed to apply transform:', error);
-      showAlert('error', error instanceof Error ? error.message : 'Failed to apply changes.');
-    } finally {
-      setIsLoadingExpansion(false); // Hide loading indicator
-    }
-  };
-
   const isScriptEffectivelyEmpty = elementsRef.current.length === 1 && elementsRef.current[0].type === 'scene-heading' && elementsRef.current[0].content === '' && isTemporaryId(elementsRef.current[0].sceneSegmentId);
+  const showGenNextSceneButton = scriptMetadata?.creationMethod === 'WITH_AI' &&
+                                 (scriptState.state === 'firstSceneGenerated' || scriptState.state === 'multipleScenes') &&
+                                 !scriptState.context.isComplete;
+
 
   return (
     <div className="h-screen bg-gray-100 flex flex-col overflow-hidden">
@@ -1024,6 +996,7 @@ export function ScriptEditor({ scriptId, initialViewMode = 'script', scriptState
         onGenerateScript={handleGenerateScript} scriptState={scriptState.state}
         beatsAvailable={beatsAvailable} hasUnsavedChanges={hasUnsavedChanges}
         onSave={handleSave} isSaving={isSaving}
+        scriptCreationMethod={scriptMetadata?.creationMethod} // Pass creation method to Header
       />
       <div className="flex-1 flex overflow-hidden">
         {viewMode !== 'beats' && !isLeftSidebarOpen && (
@@ -1062,11 +1035,11 @@ export function ScriptEditor({ scriptId, initialViewMode = 'script', scriptState
                   minHeight: `var(--page-height, ${formatSettings.pageLayout.height}in)`
                 }}>
                   <ScriptContentLoader
-                    scriptId={scriptId} creationMethod={scriptState.context.creationMethod || 'FROM_SCRATCH'}
-                    initialElements={elementsRef.current} // Pass current ref value
+                    scriptId={scriptId} creationMethod={scriptMetadata?.creationMethod || 'FROM_SCRATCH'}
+                    initialElements={elementsRef.current} 
                     onElementsLoaded={(loadedElements) => {
-                        const processed = loadedElements.map(el => ({...el, isNew: false, id: generateFrontendElementId() })); // Give new frontend IDs
-                        setElements(processed); // This will update elementsRef via useEffect
+                        const processed = loadedElements.map(el => ({...el, isNew: false, id: generateFrontendElementId() })); 
+                        setElements(processed); 
                         if (processed.length > 0) {
                             setSelectedElement(processed[0].id);
                             const lastSeg = processed.reduce((latest, current) => (current.segmentPosition || 0) > (latest.segmentPosition || 0) ? current : latest, processed[0]);
@@ -1076,10 +1049,10 @@ export function ScriptEditor({ scriptId, initialViewMode = 'script', scriptState
                     onSceneSegmentIdUpdate={setCurrentSceneSegmentId} showAlert={showAlert}
                     isGeneratingFirstScene={isGeneratingFirstScene} onGenerateScript={handleGenerateScript}
                   />
-                  {isScriptEffectivelyEmpty && scriptState.context.creationMethod === 'FROM_SCRATCH' && !isLoadingScript && (
+                  {isScriptEffectivelyEmpty && scriptMetadata?.creationMethod === 'FROM_SCRATCH' && !isLoadingScript && (
                       <ScriptEmptyState scriptType="MANUAL" onGenerateScript={() => {}} isGenerating={false} />
                    )}
-                  {elementsRef.current.map((element, index) => ( // Iterate over ref's current value
+                  {elementsRef.current.map((element, index) => ( 
                     <div key={element.id} className="element-wrapper" data-type={element.type} style={{
                       textAlign: formatSettings.elements[element.type]?.alignment || 'left',
                       marginTop: `var(--${element.type}-spacing-before, ${formatSettings.elements[element.type]?.spacingBefore || 0}rem)`,
@@ -1105,7 +1078,7 @@ export function ScriptEditor({ scriptId, initialViewMode = 'script', scriptState
                   ))}
                 </div>
               </ScrollPositionManager>
-              {scriptState.showGenerateNextSceneButton && (
+              {showGenNextSceneButton && ( 
                 <GenerateNextSceneButton onClick={handleGenerateNextScene} visible={true} isLoading={isGeneratingNextScene} />
               )}
             </div>

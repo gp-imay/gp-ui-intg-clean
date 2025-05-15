@@ -557,3 +557,23 @@
   background-color: rgba(156, 163, 175, 0.3);
   border-radius: 2px;
 }
+
+/* Save button pulse animation */
+@keyframes pulse-strong {
+  0% {
+    transform: scale(1);
+    box-shadow: 0 0 0 0 rgba(59, 130, 246, 0.5); /* Tailwind blue-500 with opacity */
+  }
+  70% {
+    transform: scale(1.05);
+    box-shadow: 0 0 0 10px rgba(59, 130, 246, 0);
+  }
+  100% {
+    transform: scale(1);
+    box-shadow: 0 0 0 0 rgba(59, 130, 246, 0);
+  }
+}
+
+.animate-pulse-strong {
+  animation: pulse-strong 1.5s infinite;
+}

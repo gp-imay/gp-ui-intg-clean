@@ -1147,21 +1147,24 @@ export const api = {
             id: `frontendId--${Math.random().toString(36).substr(2, 9)}`,
             componentId: componentId,
             type: 'character' as ElementType,
-            content: component.character_name || ''
+            content: component.character_name || '',
+            position: component.position // <<< ADD THIS LINE
           },
           // Parenthetical element
           {
             id: `frontendId--${Math.random().toString(36).substr(2, 9)}`,
             type: 'parenthetical' as ElementType,
             componentId: componentId,
-            content: component.parenthetical.trim()
+            content: component.parenthetical.trim(),
+            position: component.position // <<< ADD THIS LINE
           },
           // Dialogue element
           {
             id: `frontendId--${Math.random().toString(36).substr(2, 9)}`,
             componentId: componentId,
             type: elementType,
-            content
+            content,
+            position: component.position // <<< ADD THIS LINE
           }
         ] as ScriptElement[];
       }
@@ -1176,16 +1179,20 @@ export const api = {
             id: `frontendId--${Math.random().toString(36).substr(2, 9)}`,
             type: 'parenthetical' as ElementType,
             componentId: componentId,
-            content: parentheticalContent
+            content: parentheticalContent,
+            position: component.position // <<< ADD THIS LINE
           },
           {
             id: `frontendId--${Math.random().toString(36).substr(2, 9)}`,
             componentId: componentId,
             type: elementType,
-            content
+            content,
+            position: component.position // <<< ADD THIS LINE
           }
         ] as ScriptElement[];
       }
+      
+      
 
       // Case 3: DIALOGUE with only character_name
       else if (component.component_type === 'DIALOGUE' && component.character_name) {
@@ -1195,25 +1202,29 @@ export const api = {
             id: `frontendId--${Math.random().toString(36).substr(2, 9)}`,
             type: 'character' as ElementType,
             componentId: componentId,
-            content: component.character_name || ''
+            content: component.character_name || '',
+            position: component.position // <<< ADD THIS LINE
           },
           // Dialogue element
           {
             id: `frontendId--${Math.random().toString(36).substr(2, 9)}`,
             componentId: componentId,
             type: elementType,
-            content
+            content,
+            position: component.position // <<< ADD THIS LINE
           }
         ] as ScriptElement[];
       }
+      
 
       // Case 4: Regular element (non-DIALOGUE or DIALOGUE without extras)
       return {
         id:  `frontendId--${Math.random().toString(36).substr(2, 9)}`,
         type: elementType,
         componentId: componentId,
-        content
-      } as ScriptElement;
+        content,
+        position: component.position // <<< ADD THIS LINE
+      } as ScriptElement;      
     }).flat(); // Keep character elements this time
   },
 
@@ -1270,7 +1281,7 @@ export const api = {
         const elementsWithSegmentId = segmentElements.map(element => ({
           ...element,
           sceneSegmentId: segment.id,
-          segmentPosition: segment.position ?? 0 // Use nullish coalescing for safer default
+          segmentPosition: segment.position // Use nullish coalescing for safer default
         }));
   
         allElements.push(...elementsWithSegmentId);
