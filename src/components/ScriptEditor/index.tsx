@@ -1,5 +1,5 @@
 // src/components/ScriptEditor/index.tsx
-import React, { useState, useCallback, useRef, useEffect } from 'react';
+import React, { useState, useCallback, useRef, useEffect, useMemo } from 'react';
 import { ChevronLeft, ChevronRight, Sparkles, AlertCircle, RefreshCw } from 'lucide-react';
 import { ScriptEmptyState } from './ScriptEmptyState';
 import { ScriptContentLoader } from './ScriptContentLoader';
@@ -13,7 +13,7 @@ import { SettingsModal } from '../Settings';
 import { BeatSheetView } from '../BeatSheet/BeatSheetView';
 import { useAlert } from '../Alert';
 import { GenerateNextSceneButton } from '../GenerateNextSceneButton';
-import { api, mapApiResponseToScriptMetadata, ExpansionType } from '../../services/api';
+import { api, mapApiResponseToScriptMetadata, ExpansionType as ApiExpansionType } from '../../services/api';
 import { useParams } from 'react-router-dom';
 import { ExpandComponentResponse } from '../../services/api';
 import {
@@ -33,9 +33,12 @@ import {
   ScriptStateValues,
   AIActionType,
   ScriptMetadata,
+  NewSegment,
   ComponentTypeFE,
   ScriptChangesRequest,
   ComponentChange,
+  NewComponentForExistingSegment,
+  NewComponentForSegment
 } from '../../types/screenplay';
 import { AccountSettingsModal } from '../Dashboard/AccountSettingsModal';
 import { useAuth } from '../../contexts/AuthContext';
@@ -47,41 +50,49 @@ interface ScriptEditorProps {
 }
 
 const DEFAULT_SEGMENT_POSITION_INCREMENT = 1000;
-const DEFAULT_COMPONENT_POSITION_INCREMENT = 1000;
-const UNSAVED_REMINDER_INTERVAL = 5 * 60 * 1000;
+const DEFAULT_COMPONENT_POSITION_INCREMENT = 1000.0; // Allow float
+const MIN_POSITION_STEP = 0.001; // Minimum difference for new positions to avoid precision issues
+const UNSAVED_REMINDER_INTERVAL = 5 * 60 * 1000; // 5 minutes
+
+const deepCopyElements = (elements: ScriptElementType[]): ScriptElementType[] => {
+  return JSON.parse(JSON.stringify(elements));
+};
+
+const deepCopyElement = (element: ScriptElementType): ScriptElementType => {
+  return JSON.parse(JSON.stringify(element));
+}
 
 export function ScriptEditor({ scriptId, initialViewMode = 'script', scriptState }: ScriptEditorProps) {
   const loadedScriptIdRef = useRef<string | null>(null);
   const [title, setTitle] = useState('Untitled Screenplay');
-  
+
   const generateTemporaryId = (prefix: 'el' | 'seg'): string => {
     return `temp-${prefix}-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
   };
-  
+
   const generateFrontendElementId = () => `fe-${Date.now()}-${Math.random().toString(36).substring(2,9)}`;
 
-  const [elements, setElements] = useState<ScriptElementType[]>([
-    { 
-      id: generateFrontendElementId(), 
-      type: 'scene-heading', 
-      content: '', 
-      componentId: generateTemporaryId('el'), 
-      sceneSegmentId: generateTemporaryId('seg'),
-      segmentPosition: DEFAULT_SEGMENT_POSITION_INCREMENT, 
-      position: DEFAULT_COMPONENT_POSITION_INCREMENT, 
-      isNew: true 
-    }
-  ]);
+  const initialDefaultElement: ScriptElementType = useMemo(() => ({
+    id: generateFrontendElementId(),
+    type: 'scene-heading',
+    content: '',
+    componentId: generateTemporaryId('el'),
+    sceneSegmentId: generateTemporaryId('seg'),
+    segmentPosition: DEFAULT_SEGMENT_POSITION_INCREMENT,
+    position: DEFAULT_COMPONENT_POSITION_INCREMENT,
+    isNew: true
+  }), []);
+
+  const [elements, setElements] = useState<ScriptElementType[]>([deepCopyElement(initialDefaultElement)]);
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
-  const [saveCycle, setSaveCycle] = useState(0); // Incremented after save or AI content load
+  const [saveCycle, setSaveCycle] = useState(0);
   const [selectedElement, setSelectedElement] = useState(elements[0]?.id || '');
-  const initialElementsRef = useRef<ScriptElementType[]>([]);
+  const initialElementsRef = useRef<ScriptElementType[]>(deepCopyElements(elements));
 
   const modifiedComponentIdsRef = useRef(new Set<string>());
-  const deletedComponentIdsRef = useRef(new Set<string>()); 
-  const deletedSegmentIdsRef = useRef(new Set<string>());   
-  const loadedSegmentIdsRef = useRef<Set<string>>(new Set());
+  const deletedComponentIdsRef = useRef(new Set<string>());
+  const deletedSegmentIdsRef = useRef(new Set<string>());
 
   const [isLeftSidebarOpen, setIsLeftSidebarOpen] = useState(true);
   const [isRightSidebarOpen, setIsRightSidebarOpen] = useState(false);
@@ -100,7 +111,7 @@ export function ScriptEditor({ scriptId, initialViewMode = 'script', scriptState
   const [isLoadingExpansion, setIsLoadingExpansion] = useState(false);
   const [showAccountSettingsModal, setShowAccountSettingsModal] = useState(false);
   const [activeExpansionComponentId, setActiveExpansionComponentId] = useState<string | null>(null);
-  const [activeExpansionActionType, setActiveExpansionActionType] = useState<AIActionType | null>(null);
+  const [activeExpansionActionType, setActiveExpansionActionType] = useState<AIActionType | ApiExpansionType | null>(null);
   const [previousSidebarStates, setPreviousSidebarStates] = useState<{
     left: boolean;
     right: boolean;
@@ -134,30 +145,63 @@ export function ScriptEditor({ scriptId, initialViewMode = 'script', scriptState
   const isInitialLoadCompleteRef = useRef(false);
 
   const isTemporaryId = (id: string | undefined): boolean => {
-    return !!id && id.startsWith('temp-');
+    return !!id && (id.startsWith('temp-') || id.startsWith('fe-'));
   };
-  
-  // Effect to reset the baseline for changes after an initial load or a successful save/AI content load.
-  useEffect(() => {
-    if (!isLoadingScript && !isInitialLoadCompleteRef.current) { // Initial script load complete
-        console.log("Initial script load complete. Resetting change tracking state baseline.");
-        initialElementsRef.current = JSON.parse(JSON.stringify(elements));
-        modifiedComponentIdsRef.current.clear();
-        deletedComponentIdsRef.current.clear();
-        deletedSegmentIdsRef.current.clear();
-        setHasUnsavedChanges(false);
-        isInitialLoadCompleteRef.current = true; 
-    } else if (saveCycle > 0 && !isLoadingScript && isInitialLoadCompleteRef.current) { // Post-save or post-AI content load
-        console.log(`Save cycle ${saveCycle}. Resetting change tracking state baseline.`);
-        initialElementsRef.current = JSON.parse(JSON.stringify(elements)); // Use the latest elements from state
-        modifiedComponentIdsRef.current.clear();
-        deletedComponentIdsRef.current.clear();
-        deletedSegmentIdsRef.current.clear();
-        setHasUnsavedChanges(false);
-    }
-  }, [isLoadingScript, saveCycle, elements]); // `elements` is crucial here
 
-  // Effect for "beforeunload" prompt
+  useEffect(() => {
+    if (isLoadingScript || !isInitialLoadCompleteRef.current) {
+      return;
+    }
+    const newElementsAdded = elements.some(el => el.isNew);
+    const elementsDeleted = deletedComponentIdsRef.current.size > 0 || deletedSegmentIdsRef.current.size > 0;
+    let detailedContentModified = false;
+    if (elements.length === initialElementsRef.current.length) {
+        for (let i = 0; i < elements.length; i++) {
+            const currentEl = elements[i];
+            const initialEl = initialElementsRef.current.find(iel => iel.componentId === currentEl.componentId && !isTemporaryId(currentEl.componentId));
+            if (initialEl) {
+                if (currentEl.content !== initialEl.content || currentEl.type !== initialEl.type) {
+                    detailedContentModified = true;
+                    break;
+                }
+            } else if (currentEl.isNew) {
+                detailedContentModified = true;
+                break;
+            }
+        }
+    } else {
+        detailedContentModified = true;
+    }
+    if (newElementsAdded || elementsDeleted || (modifiedComponentIdsRef.current.size > 0 && detailedContentModified) ) {
+        setHasUnsavedChanges(true);
+    } else {
+        if (modifiedComponentIdsRef.current.size > 0) {
+            let actualModifications = false;
+            for (const componentId of modifiedComponentIdsRef.current) {
+                const currentElement = elements.find(el => el.componentId === componentId);
+                const initialElement = initialElementsRef.current.find(el => el.componentId === componentId);
+                if (currentElement && initialElement && currentElement.content !== initialElement.content) {
+                    actualModifications = true;
+                    break;
+                }
+            }
+            setHasUnsavedChanges(actualModifications);
+        } else {
+            setHasUnsavedChanges(false);
+        }
+    }
+  }, [elements, isLoadingScript, saveCycle]);
+
+  useEffect(() => {
+    if (!isLoadingScript && isInitialLoadCompleteRef.current) {
+      initialElementsRef.current = deepCopyElements(elements);
+      modifiedComponentIdsRef.current.clear();
+      deletedComponentIdsRef.current.clear();
+      deletedSegmentIdsRef.current.clear();
+      setElements(prev => prev.map(el => ({ ...el, isNew: false })));
+    }
+  }, [isLoadingScript, saveCycle]);
+
   useEffect(() => {
     const handleBeforeUnload = (event: BeforeUnloadEvent) => {
       if (hasUnsavedChanges) {
@@ -166,17 +210,12 @@ export function ScriptEditor({ scriptId, initialViewMode = 'script', scriptState
       }
     };
     window.addEventListener('beforeunload', handleBeforeUnload);
-    return () => {
-      window.removeEventListener('beforeunload', handleBeforeUnload);
-    };
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
   }, [hasUnsavedChanges]);
 
-  // Effect for periodic unsaved changes reminder
   useEffect(() => {
     if (hasUnsavedChanges) {
-      if (unsavedChangesTimerRef.current) {
-        clearTimeout(unsavedChangesTimerRef.current);
-      }
+      if (unsavedChangesTimerRef.current) clearTimeout(unsavedChangesTimerRef.current);
       unsavedChangesTimerRef.current = setTimeout(() => {
         showAlert('info', 'You have unsaved changes. Remember to save your work!');
       }, UNSAVED_REMINDER_INTERVAL);
@@ -187,15 +226,13 @@ export function ScriptEditor({ scriptId, initialViewMode = 'script', scriptState
       }
     }
     return () => {
-      if (unsavedChangesTimerRef.current) {
-        clearTimeout(unsavedChangesTimerRef.current);
-      }
+      if (unsavedChangesTimerRef.current) clearTimeout(unsavedChangesTimerRef.current);
     };
   }, [hasUnsavedChanges, showAlert]);
 
   const handleViewModeChange = (mode: ViewMode) => {
     if (mode === 'beats' && !beatsAvailable) {
-      showAlert('info', 'AI beats are not available for manually created scripts. You can still switch to the beats view to see this message.');
+      showAlert('info', 'AI beats are not available for manually created scripts.');
     }
     if (mode === 'beats' && viewMode !== 'beats') {
       setPreviousSidebarStates({ left: isLeftSidebarOpen, right: isRightSidebarOpen });
@@ -217,110 +254,100 @@ export function ScriptEditor({ scriptId, initialViewMode = 'script', scriptState
       scriptState.actions.generateFirstScene();
     }
   }, [currentSceneSegmentId, scriptState.actions, isLoadingScript]);
-  
+
   useEffect(() => {
     if (!scriptId || hasAttemptedLoad) {
       if (isLoadingScript) setIsLoadingScript(false);
       return;
     }
     loadedScriptIdRef.current = scriptId;
-
     async function initializeEditor() {
       setIsLoadingScript(true); setLoadError(null);
+      isInitialLoadCompleteRef.current = false;
       try {
         const metadata = await api.getScriptMetadata(scriptId);
         setTitle(metadata.title || `Script ${scriptId.slice(0, 8)}`);
         const mappedMeta = mapApiResponseToScriptMetadata(metadata);
-        setScriptMetadata(mappedMeta); 
+        setScriptMetadata(mappedMeta);
         setBeatsAvailable(mappedMeta.creationMethod === 'WITH_AI');
-
         const initialSegmentsResponse = await api.getScriptSegments(scriptId, 0, 20);
+        let fetchedElements: ScriptElementType[] = [];
         if (initialSegmentsResponse && initialSegmentsResponse.segments.length > 0) {
-          const fetchedElements = api.convertSegmentsToScriptElements(initialSegmentsResponse.segments, [], generateFrontendElementId);
-          // Mark fetched elements as not new, assign unique frontend ID
-          const processedElements = fetchedElements.map(el => ({ ...el, isNew: false, id: generateFrontendElementId() }));
-          setElements(processedElements);
-          if (processedElements.length > 0) {
-            setSelectedElement(processedElements[0].id);
+          fetchedElements = api.convertSegmentsToScriptElements(
+            initialSegmentsResponse.segments, [],
+          ).map(el => ({ ...el, isNew: false }));
+          if (fetchedElements.length > 0) {
             const lastSegment = initialSegmentsResponse.segments[initialSegmentsResponse.segments.length - 1];
             if (lastSegment?.id) setCurrentSceneSegmentId(lastSegment.id);
           }
         } else if (metadata.creation_method === 'FROM_SCRATCH') {
-          const tempSegId = generateTemporaryId('seg');
-          const tempCompId = generateTemporaryId('el'); 
-          const initialElement: ScriptElementType = {
-            id: generateFrontendElementId(), 
-            type: 'scene-heading', content: '', componentId: tempCompId,
-            sceneSegmentId: tempSegId, segmentPosition: DEFAULT_SEGMENT_POSITION_INCREMENT,
-            position: DEFAULT_COMPONENT_POSITION_INCREMENT, isNew: true
-          };
-          setElements([initialElement]);
-          setSelectedElement(initialElement.id);
-        } else { // WITH_AI but no segments yet (e.g. only beats exist)
-          setElements([]); // Start empty, BeatSheetView will handle generating first script parts
+            fetchedElements = [deepCopyElement(initialDefaultElement)];
         }
+        setElements(fetchedElements.length > 0 ? fetchedElements : [deepCopyElement(initialDefaultElement)]);
+        setSelectedElement(fetchedElements.length > 0 ? fetchedElements[0].id : initialDefaultElement.id);
+        initialElementsRef.current = deepCopyElements(fetchedElements.length > 0 ? fetchedElements : [deepCopyElement(initialDefaultElement)]);
         if (scriptState.context.scenesCount > 0) setHasCompletedFirstScene(true);
+        setHasUnsavedChanges(false);
       } catch (error) {
         const message = error instanceof Error ? error.message : 'Failed to load script';
-        setLoadError(message); showAlert('error', message); setElements([]);
+        setLoadError(message); showAlert('error', message);
+        setElements([deepCopyElement(initialDefaultElement)]);
+        initialElementsRef.current = deepCopyElements([deepCopyElement(initialDefaultElement)]);
       } finally {
-        setIsLoadingScript(false); setHasAttemptedLoad(true);
+        setIsLoadingScript(false);
+        setHasAttemptedLoad(true);
+        isInitialLoadCompleteRef.current = true;
+        setSaveCycle(prev => prev + 1);
       }
     }
     initializeEditor();
-  }, [scriptId, showAlert, hasAttemptedLoad, scriptState.context.scenesCount]); // Dependencies for initial load
-  
+  }, [scriptId, showAlert, hasAttemptedLoad, scriptState.context.scenesCount, initialDefaultElement]);
+
   const handleGeneratedScriptElements = (generatedElements: ScriptElementType[], sceneSegmentId: string) => {
     setCurrentSceneSegmentId(sceneSegmentId);
-    loadedSegmentIdsRef.current.add(sceneSegmentId);
     const processedGeneratedElements = generatedElements.map(el => ({
-      ...el, isNew: false, id: generateFrontendElementId() // Mark as not new, ensure frontend ID
+      ...el, isNew: false, id: el.id || generateFrontendElementId()
     }));
-    
-    const isEditorEffectivelyEmpty = elementsRef.current.length === 0 ||
-      (elementsRef.current.length === 1 && elementsRef.current[0].type === 'scene-heading' && stripHtml(elementsRef.current[0].content).trim() === '' && isTemporaryId(elementsRef.current[0].sceneSegmentId));
-    
+    const isEditorEffectivelyEmpty = elements.length === 0 ||
+      (elements.length === 1 && elements[0].type === 'scene-heading' && elements[0].content === '' && isTemporaryId(elements[0].sceneSegmentId));
     let finalElementsToSet: ScriptElementType[];
     if (isEditorEffectivelyEmpty) {
       finalElementsToSet = processedGeneratedElements;
     } else {
-      // Merge new elements with existing, ensuring no duplicates by componentId
-      const existingComponentIds = new Set(elementsRef.current.map(e => e.componentId));
-      const uniqueNewElements = processedGeneratedElements.filter(ne => !ne.componentId || !existingComponentIds.has(ne.componentId));
-      
-      const combined = [...elementsRef.current, ...uniqueNewElements];
+      const existingComponentIds = new Set(elements.map(e => e.componentId).filter(cid => !isTemporaryId(cid)));
+      const uniqueNewElements = processedGeneratedElements.filter(ne => !ne.componentId || isTemporaryId(ne.componentId) || !existingComponentIds.has(ne.componentId));
+      const combined = [...elements, ...uniqueNewElements];
       const segmentGroups = new Map<string, ScriptElementType[]>();
       combined.forEach(element => {
         const segId = element.sceneSegmentId || `unsegmented-${element.id}`;
         if (!segmentGroups.has(segId)) segmentGroups.set(segId, []);
         segmentGroups.get(segId)?.push(element);
       });
+      const sortedSegmentIds = Array.from(segmentGroups.keys()).sort((a, b) => {
+        const aPos = segmentGroups.get(a)?.[0]?.segmentPosition ?? Infinity;
+        const bPos = segmentGroups.get(b)?.[0]?.segmentPosition ?? Infinity;
+        return aPos - bPos;
+      });
       finalElementsToSet = [];
-      Array.from(segmentGroups.keys())
-        .sort((a, b) => {
-          const aPos = segmentGroups.get(a)?.[0]?.segmentPosition ?? Infinity;
-          const bPos = segmentGroups.get(b)?.[0]?.segmentPosition ?? Infinity;
-          return aPos - bPos;
-        })
-        .forEach(sId => {
-          const segmentElems = segmentGroups.get(sId) || [];
-          segmentElems.sort((a, b) => (a.position ?? 0) - (b.position ?? 0));
-          finalElementsToSet.push(...segmentElems);
-        });
+      sortedSegmentIds.forEach(sId => {
+        const segmentElems = segmentGroups.get(sId) || [];
+        segmentElems.sort((a, b) => (a.position || 0) - (b.position || 0));
+        finalElementsToSet.push(...segmentElems);
+      });
     }
-    
-    setElements(finalElementsToSet); 
+    setElements(finalElementsToSet);
+    initialElementsRef.current = deepCopyElements(finalElementsToSet);
+    modifiedComponentIdsRef.current.clear();
+    deletedComponentIdsRef.current.clear();
+    deletedSegmentIdsRef.current.clear();
+    setHasUnsavedChanges(false);
     if (processedGeneratedElements.length > 0) setSelectedElement(processedGeneratedElements[0].id);
-    setHasCompletedFirstScene(true); 
-    setActiveTab('scenes'); 
-    
-    console.log("Triggering saveCycle increment after handleGeneratedScriptElements");
-    setSaveCycle(prev => prev + 1); // This resets the baseline via useEffect
+    setHasCompletedFirstScene(true); setActiveTab('scenes');
   };
-  
+
   const handleChangeDisplayName = () => showAlert('info', 'Change display name functionality coming soon.');
   const handleChangeEmail = () => showAlert('info', 'Change email functionality coming soon.');
-  
+
   const handleGenerateNextScene = async () => {
     if (!scriptId) { showAlert('error', 'Script ID is missing'); return; }
     try {
@@ -329,36 +356,44 @@ export function ScriptEditor({ scriptId, initialViewMode = 'script', scriptState
       if (result.success && result.generated_segment?.components) {
         setCurrentSceneSegmentId(result.scene_segment_id || null);
         const newApiElements = api.convertSceneComponentsToElements(result.generated_segment.components)
-            .map(el => ({ ...el, isNew: false, id: generateFrontendElementId() })); // Mark as not new
-        
-        setElements(prev => [...prev, ...newApiElements]);
-        
+          .map(el => ({ ...el, isNew: false, id: el.id || generateFrontendElementId() }));
+        setElements(prev => {
+            const updatedElements = [...prev, ...newApiElements];
+            initialElementsRef.current = deepCopyElements(updatedElements);
+            return updatedElements;
+        });
+        modifiedComponentIdsRef.current.clear();
+        setHasUnsavedChanges(false);
         if (newApiElements.length > 0) setSelectedElement(newApiElements[0].id);
         showAlert('success', 'Next scene generated successfully');
-        
-        console.log("Triggering saveCycle increment after handleGenerateNextScene");
-        setSaveCycle(prev => prev + 1); // This resets the baseline via useEffect
-      } else { 
-        throw new Error(result.error || 'No script components were generated or operation failed');
-      }
+      } else { throw new Error(result.error || 'No script components were generated or operation failed'); }
     } catch (error) {
       showAlert('error', error instanceof Error ? error.message : 'Failed to generate next scene');
-    } finally { 
-      setIsGeneratingNextScene(false); 
-    }
+    } finally { setIsGeneratingNextScene(false); }
   };
 
-  // This function is called from BeatSheetView, which then calls handleGeneratedScriptElements
-  const handleGenerateScript = async () => { 
+  const handleGenerateScript = async () => {
     if (!scriptId) { showAlert('error', 'Script ID is missing'); return; }
-    // The actual generation and element setting is handled by BeatSheetView -> onGeneratedScriptElements -> handleGeneratedScriptElements
-    // This function in ScriptEditor might be for a direct "Generate Script" button if one existed here.
-    // For now, assuming BeatSheetView's flow is primary for this.
-    // If called, it should likely also result in setSaveCycle being incremented after elements are set.
-    // This is effectively handled if BeatSheetView calls onGeneratedScriptElements.
-    console.log("handleGenerateScript in ScriptEditor called. Actual logic in BeatSheetView flow.");
+    try {
+      setIsGeneratingFirstScene(true);
+      const result = await api.generateScript(scriptId);
+      if (result.success && result.generated_segment?.components) {
+        setCurrentSceneSegmentId(result.scene_segment_id || null);
+        const scriptApiElements = api.convertSceneComponentsToElements(result.generated_segment.components)
+          .map(el => ({ ...el, isNew: false, id: el.id || generateFrontendElementId() }));
+        setElements(scriptApiElements);
+        initialElementsRef.current = deepCopyElements(scriptApiElements);
+        modifiedComponentIdsRef.current.clear();
+        setHasUnsavedChanges(false);
+        if (scriptApiElements.length > 0) setSelectedElement(scriptApiElements[0].id);
+        setHasCompletedFirstScene(true); setActiveTab('scenes'); handleViewModeChange('script');
+        showAlert('success', 'Script generated successfully');
+      } else { throw new Error(result.error || 'No script components were generated or operation failed'); }
+    } catch (error) {
+      showAlert('error', error instanceof Error ? error.message : 'Failed to generate script');
+    } finally { setIsGeneratingFirstScene(false); }
   };
-  
+
   const stripHtml = (html: string): string => {
     const doc = new DOMParser().parseFromString(html, 'text/html');
     return doc.body.textContent || "";
@@ -369,63 +404,104 @@ export function ScriptEditor({ scriptId, initialViewMode = 'script', scriptState
   useEffect(() => {
       elementsRef.current = elements;
   }, [elements]);
-  
+
   const createNewElement = useCallback((type: ElementType, afterId: string): string => {
-    const currentElements = elementsRef.current; 
+    const currentElements = elementsRef.current;
     const afterElementIndex = currentElements.findIndex(el => el.id === afterId);
-    const afterElement = afterElementIndex !== -1 ? currentElements[afterElementIndex] : currentElements[currentElements.length - 1];
 
-    if (!afterElement && currentElements.length > 0) { // Should be rare if afterId is always valid
-        const newIdFallback = generateFrontendElementId();
-        const fallbackElement: ScriptElementType = {
-            id: newIdFallback, componentId: generateTemporaryId('el'), type, content: '',
-            sceneSegmentId: currentElements[0]?.sceneSegmentId || generateTemporaryId('seg'),
-            segmentPosition: currentElements[0]?.segmentPosition || DEFAULT_SEGMENT_POSITION_INCREMENT,
-            position: (currentElements[currentElements.length -1]?.position || 0) + DEFAULT_COMPONENT_POSITION_INCREMENT, isNew: true,
-        };
-        setElements(prev => [...prev, fallbackElement]);
-        setHasUnsavedChanges(true);
-        return newIdFallback;
-    } else if (!afterElement && currentElements.length === 0) { // Creating the very first element
-        const newId = generateFrontendElementId();
-        const firstElement: ScriptElementType = {
-            id: newId, componentId: generateTemporaryId('el'), type: type, content: '',
-            sceneSegmentId: generateTemporaryId('seg'),
-            segmentPosition: DEFAULT_SEGMENT_POSITION_INCREMENT,
-            position: DEFAULT_COMPONENT_POSITION_INCREMENT, isNew: true,
-        };
-        setElements([firstElement]);
-        setHasUnsavedChanges(true);
-        return newId;
+    // Guard against afterId not found - this should ideally not happen if UI is correct
+    if (afterElementIndex === -1) {
+        console.error(`createNewElement: afterId ${afterId} not found. Cannot create element.`);
+        // Attempt to append to the end as a fallback if elements exist
+        if (currentElements.length > 0) {
+            const lastElement = currentElements[currentElements.length - 1];
+            const newIdFallback = generateFrontendElementId();
+            const fallbackElement: ScriptElementType = {
+                id: newIdFallback, componentId: generateTemporaryId('el'), type, content: '',
+                sceneSegmentId: lastElement.sceneSegmentId || generateTemporaryId('seg'), // Inherit or create new
+                segmentPosition: lastElement.segmentPosition || Date.now(),
+                position: (lastElement.position || 0) + DEFAULT_COMPONENT_POSITION_INCREMENT, isNew: true,
+            };
+            setElements(prev => [...prev, fallbackElement]);
+            return newIdFallback;
+        } else { // No elements exist, create the very first one
+            const newId = generateFrontendElementId();
+            const firstElement: ScriptElementType = {
+                id: newId, componentId: generateTemporaryId('el'), type, content: '',
+                sceneSegmentId: generateTemporaryId('seg'),
+                segmentPosition: DEFAULT_SEGMENT_POSITION_INCREMENT, // Use default for the very first segment
+                position: DEFAULT_COMPONENT_POSITION_INCREMENT, isNew: true,
+            };
+            setElements([firstElement]);
+            return newId;
+        }
     }
-
+    
+    const afterElement = currentElements[afterElementIndex];
     const newFeId = generateFrontendElementId();
     const newTempComponentId = generateTemporaryId('el');
-    let newSceneSegmentId = afterElement.sceneSegmentId;
-    let newSegmentPosition = afterElement.segmentPosition;
+    let newSceneSegmentId: string | undefined;
+    let newSegmentPosition: number | undefined;
     let newComponentPosition: number;
 
     if (type === 'scene-heading') {
       newSceneSegmentId = generateTemporaryId('seg');
-      newSegmentPosition = Date.now(); 
-      newComponentPosition = DEFAULT_COMPONENT_POSITION_INCREMENT; 
+      // Ensure new segment position is greater than any existing to maintain order
+      const maxExistingSegmentPos = currentElements.reduce((max, el) => Math.max(max, el.segmentPosition || 0), 0);
+      newSegmentPosition = Math.max(Date.now(), maxExistingSegmentPos + 1); // Use timestamp or increment
+      newComponentPosition = DEFAULT_COMPONENT_POSITION_INCREMENT; // Scene Heading component itself gets 1000
     } else {
-      let segmentLeader = afterElement;
+      // Determine target segment based on 'afterElement'
+      let targetSegmentLeader = afterElement;
       if (afterElement.type !== 'scene-heading') {
-        const afterElementIndexInCurrent = currentElements.findIndex(el => el.id === afterId);
-        for (let i = afterElementIndexInCurrent -1; i >=0; i--) {
-            if (currentElements[i].type === 'scene-heading') {
-                segmentLeader = currentElements[i];
-                break;
-            }
+        for (let i = afterElementIndex; i >= 0; i--) {
+          if (currentElements[i].type === 'scene-heading') {
+            targetSegmentLeader = currentElements[i];
+            break;
+          }
         }
       }
-      newSceneSegmentId = segmentLeader.sceneSegmentId;
-      newSegmentPosition = segmentLeader.segmentPosition; 
+      // If no scene heading was found going upwards (e.g., script starts with action),
+      // this new component will belong to afterElement's segment (which might be a temp one)
+      newSceneSegmentId = targetSegmentLeader.sceneSegmentId;
+      newSegmentPosition = targetSegmentLeader.segmentPosition;
 
-      const elementsInSameSegment = currentElements.filter(el => el.sceneSegmentId === newSceneSegmentId);
-      const maxComponentPosInSegment = elementsInSameSegment.reduce((max, el) => Math.max(max, el.position || 0), 0);
-      newComponentPosition = (maxComponentPosInSegment || 0) + DEFAULT_COMPONENT_POSITION_INCREMENT;
+      // --- Corrected Positioning Logic for Components ---
+      const P_element = afterElement; // The element we are inserting after
+      const N_element = currentElements[afterElementIndex + 1]; // Potential next element in the global list
+
+      // Use the actual position of P_element as the base for calculations.
+      const p_pos = P_element.position || 0;
+
+      if (N_element && N_element.sceneSegmentId === newSceneSegmentId) {
+        // Case 1: Inserting between P and N (which are in the same target segment)
+        const n_pos = N_element.position;
+        if (n_pos !== undefined) { // Ensure n_pos is defined
+            newComponentPosition = p_pos + (n_pos - p_pos) / 2.0;
+            // Ensure new position is strictly between p_pos and n_pos and maintains a minimum step
+            if (newComponentPosition <= p_pos) newComponentPosition = p_pos + MIN_POSITION_STEP;
+            if (newComponentPosition >= n_pos) newComponentPosition = n_pos - MIN_POSITION_STEP;
+            // If after adjustment, it's still problematic (e.g. p_pos and n_pos were too close)
+            // ensure it's at least slightly greater than p_pos
+            if (newComponentPosition <= p_pos) {
+                 // This case implies n_pos was very close or equal to p_pos.
+                 // We must ensure the new position is > p_pos.
+                 // If n_pos > p_pos, try to find a spot. If n_pos <= p_pos (data error), just increment from p_pos.
+                 if (n_pos > p_pos + MIN_POSITION_STEP) {
+                    newComponentPosition = p_pos + (n_pos - p_pos) / 2.0; // Try midpoint again
+                 } else {
+                    newComponentPosition = p_pos + MIN_POSITION_STEP; // Small increment if gap is tiny or non-existent
+                 }
+            }
+        } else {
+           // Fallback if N_element in the same segment has no position (should not happen with good data)
+           newComponentPosition = p_pos + DEFAULT_COMPONENT_POSITION_INCREMENT;
+        }
+      } else {
+        // Case 2: Inserting after P, and P is the last in its segment (or N is in a different segment)
+        // This also covers the case where P_element is a scene heading and this is the first component.
+        newComponentPosition = p_pos + DEFAULT_COMPONENT_POSITION_INCREMENT;
+      }
     }
 
     const newElement: ScriptElementType = {
@@ -433,24 +509,21 @@ export function ScriptEditor({ scriptId, initialViewMode = 'script', scriptState
       sceneSegmentId: newSceneSegmentId, position: newComponentPosition,
       segmentPosition: newSegmentPosition, isNew: true
     };
+
     setElements(prev => {
       const currentAfterIdx = prev.findIndex(el => el.id === afterId);
-      if (currentAfterIdx === -1 && prev.length > 0) { // afterId not found, append to current segment or as new
-        const lastElem = prev[prev.length -1];
-        newElement.sceneSegmentId = lastElem.sceneSegmentId; // Keep same segment
-        newElement.segmentPosition = lastElem.segmentPosition;
-        newElement.position = (lastElem.position || 0) + DEFAULT_COMPONENT_POSITION_INCREMENT;
-        return [...prev, newElement];
-      } else if (currentAfterIdx === -1 && prev.length === 0) { // list is empty
-         return [newElement];
+      // This should ideally not be -1 if afterId was correctly passed from handleKeyDown
+      if (currentAfterIdx === -1) {
+          console.warn(`Fallback: afterId ${afterId} not found in setElements. Appending new element.`);
+          return [...prev, newElement];
       }
       const newArray = [...prev];
       newArray.splice(currentAfterIdx + 1, 0, newElement);
       return newArray;
     });
-    setHasUnsavedChanges(true);
     return newFeId;
-  }, []); 
+  }, []);
+
 
   const handleNavigateElement = useCallback((currentId: string, direction: 'up' | 'down') => {
     const currentElements = elementsRef.current;
@@ -461,22 +534,19 @@ export function ScriptEditor({ scriptId, initialViewMode = 'script', scriptState
       setSelectedElement(currentElements[targetIndex].id);
     }
   }, []);
-  
+
   const handleElementChange = (id: string, content: string) => {
     setElements(prev =>
       prev.map(el => {
         if (el.id === id) {
-          const contentChanged = el.content !== content;
-          if (contentChanged) {
-            // Only mark as modified if it's an existing, persisted component
+          const contentActuallyChanged = el.content !== content;
+          if (contentActuallyChanged) {
             if (!isTemporaryId(el.componentId) && el.componentId) {
               modifiedComponentIdsRef.current.add(el.componentId);
             }
-            setHasUnsavedChanges(true);
+            return { ...el, content, isNew: el.isNew || isTemporaryId(el.componentId) };
           }
-          // If it was temporary and content changed, it's still effectively "new" or needs to be treated as such by save.
-          // The `isNew` flag helps `generateSavePayload`.
-          return { ...el, content, isNew: el.isNew || (isTemporaryId(el.componentId) && contentChanged) };
+          return el;
         }
         return el;
       })
@@ -507,72 +577,50 @@ export function ScriptEditor({ scriptId, initialViewMode = 'script', scriptState
           const currentIdx = updatedElements.findIndex(el => el.id === id);
           if (currentIdx === -1) return prevElements;
           const originalElement = updatedElements[currentIdx];
-          updatedElements[currentIdx] = { ...originalElement, content: splitData.beforeContent, isNew: originalElement.isNew || (isTemporaryId(originalElement.componentId) && originalElement.content !== splitData.beforeContent) };
-          if (!isTemporaryId(originalElement.componentId) && originalElement.componentId && originalElement.content !== splitData.beforeContent) {
+          const contentActuallyChanged = originalElement.content !== splitData.beforeContent;
+          updatedElements[currentIdx] = {
+            ...originalElement,
+            content: splitData.beforeContent,
+            isNew: originalElement.isNew || (isTemporaryId(originalElement.componentId) && contentActuallyChanged)
+          };
+          if (contentActuallyChanged && !isTemporaryId(originalElement.componentId) && originalElement.componentId) {
             modifiedComponentIdsRef.current.add(originalElement.componentId);
           }
           return updatedElements;
         });
         newElementId = createNewElement(nextType, id);
-        setElements(prevElements => { // Ensure afterContent is set to the newly created element
+        setElements(prevElements => {
             const finalElements = [...prevElements];
             const finalNewElementIndex = finalElements.findIndex(el => el.id === newElementId);
-            if(finalNewElementIndex !== -1) {
-              finalElements[finalNewElementIndex] = {...finalElements[finalNewElementIndex], content: splitData.afterContent };
-            }
+            if(finalNewElementIndex !== -1) finalElements[finalNewElementIndex] = {...finalElements[finalNewElementIndex], content: splitData.afterContent };
             return finalElements;
         });
       } else {
         newElementId = createNewElement(nextType, id);
       }
       if (newElementId) setSelectedElement(newElementId);
-      setHasUnsavedChanges(true);
-    } else if (event.key === 'Backspace' && options?.mergeUp) { // Handles Backspace at start of element to merge/delete
+    } else if (event.key === 'Backspace' && options?.mergeUp) {
       event.preventDefault();
-      if (currentIndex > 0) { // Cannot merge up if it's the first element
+      if (currentIndex > 0) {
         const previousElement = currentElements[currentIndex - 1];
         if (!isTemporaryId(currentElement.componentId) && currentElement.componentId) {
           deletedComponentIdsRef.current.add(currentElement.componentId);
-          console.log(`Marked component ${currentElement.componentId} for deletion (mergeUp).`);
           if (currentElement.type === 'scene-heading' && !isTemporaryId(currentElement.sceneSegmentId) && currentElement.sceneSegmentId) {
             deletedSegmentIdsRef.current.add(currentElement.sceneSegmentId);
-            console.log(`Marked segment ${currentElement.sceneSegmentId} for deletion (mergeUp).`);
           }
         }
-        // Merge content if previous element is not empty, otherwise just delete current
-        const newContentForPrevious = previousElement.content + stripHtml(currentElement.content);
-        setElements(prev => {
-            const filtered = prev.filter(el => el.id !== id);
-            return filtered.map(el => el.id === previousElement.id ? {...el, content: newContentForPrevious} : el);
-        });
-        
+        setElements(prev => prev.filter(el => el.id !== id));
         setSelectedElement(previousElement.id);
-        // Focus at the end of the merged content in the previous element
         requestAnimationFrame(() => elementRefs.current[previousElement.id]?.current?.focusEditorEnd());
-        setHasUnsavedChanges(true);
-      } else if (currentIndex === 0 && currentElements.length > 1) { // Trying to Backspace on first element but it's not the only one
-        // This case should ideally not have mergeUp if it's the very first element
-        // If it's empty, Tiptap's internal logic might delete it.
-        // If it gets here, and it's not temporary, mark for deletion.
-         if (!isTemporaryId(currentElement.componentId) && currentElement.componentId && stripHtml(currentElement.content).trim() === '') {
-            deletedComponentIdsRef.current.add(currentElement.componentId);
-            if (currentElement.type === 'scene-heading' && !isTemporaryId(currentElement.sceneSegmentId) && currentElement.sceneSegmentId) {
-                deletedSegmentIdsRef.current.add(currentElement.sceneSegmentId);
-            }
-            setElements(prev => prev.filter(el => el.id !== id));
-            if (currentElements.length > 1) setSelectedElement(currentElements[1].id); else {/* handle empty script */}
-            setHasUnsavedChanges(true);
-        }
       }
     } else if (event.key === 'Tab' && !event.shiftKey && !event.ctrlKey && !event.metaKey) {
       event.preventDefault();
       const nextType = getNextElementType(currentElement.type);
       const newId = createNewElement(nextType, id);
       setSelectedElement(newId);
-      setHasUnsavedChanges(true);
     }
-  }, [hasCompletedFirstScene, createNewElement, setActiveTab, getNextElementType, setHasUnsavedChanges]); // Removed elements from deps as elementsRef.current is used
-  
+  }, [hasCompletedFirstScene, createNewElement, setActiveTab, getNextElementType]);
+
   const mapElementTypeToComponentType = (elementType: ElementType): ComponentTypeFE => {
     switch (elementType) {
       case 'scene-heading': return ComponentTypeFE.HEADING;
@@ -584,9 +632,9 @@ export function ScriptEditor({ scriptId, initialViewMode = 'script', scriptState
       default: console.warn(`Unknown element type: ${elementType}`); return ComponentTypeFE.ACTION;
     }
   };
-  
+
   const generateSavePayload = (): ScriptChangesRequest => {
-    const currentElements = elementsRef.current; // Use the ref for the most current data
+    const currentElements = elementsRef.current;
     const payload: ScriptChangesRequest = {
         changedSegments: {},
         deletedElements: Array.from(deletedComponentIdsRef.current).filter(id => !isTemporaryId(id)),
@@ -596,30 +644,26 @@ export function ScriptEditor({ scriptId, initialViewMode = 'script', scriptState
     };
     const segmentMap = new Map<string, ScriptElementType[]>();
     currentElements.forEach(el => {
-        const segId = el.sceneSegmentId || generateTemporaryId('seg'); // Ensure a segId
+        const segId = el.sceneSegmentId || generateTemporaryId('seg');
         if (!segmentMap.has(segId)) segmentMap.set(segId, []);
         segmentMap.get(segId)!.push({
             ...el,
-            position: typeof el.position === 'number' && !isNaN(el.position) ? el.position : Date.now(),
-            segmentPosition: typeof el.segmentPosition === 'number' && !isNaN(el.segmentPosition) ? el.segmentPosition : Date.now(),
+            position: typeof el.position === 'number' ? el.position : Date.now(),
+            segmentPosition: typeof el.segmentPosition === 'number' ? el.segmentPosition : Date.now(),
         });
     });
-
     segmentMap.forEach((segmentElementsFromMap, segmentId) => {
         segmentElementsFromMap.sort((a, b) => (a.position || 0) - (b.position || 0));
-        const apiComponentsForSegment: (Omit<ComponentChange, 'id'> & { id?: string, frontendId?: string } | any)[] = [];
-        
+        const apiComponentsForSegment: (Omit<ComponentChange, 'id'> & { id?: string, frontendId?: string } | Omit<NewComponentForSegment, 'frontendId'> & { frontendId: string } | Omit<NewComponentForExistingSegment, 'frontendId' | 'segment_id'> & { frontendId: string, segment_id: string })[] = [];
         let i = 0;
         while (i < segmentElementsFromMap.length) {
             const el = segmentElementsFromMap[i];
             let charName: string | undefined = undefined;
             let parenText: string | undefined = undefined;
-
             if (el.type === 'character') {
                 charName = stripHtml(el.content);
                 let dialogueEl: ScriptElementType | undefined = undefined;
                 let parenEl: ScriptElementType | undefined = undefined;
-                
                 if (i + 1 < segmentElementsFromMap.length) {
                     if (segmentElementsFromMap[i+1].type === 'parenthetical') {
                         parenEl = segmentElementsFromMap[i+1];
@@ -631,29 +675,24 @@ export function ScriptEditor({ scriptId, initialViewMode = 'script', scriptState
                         dialogueEl = segmentElementsFromMap[i+1];
                     }
                 }
-
-                if (dialogueEl) { 
-                    const isNewEffective = el.isNew || isTemporaryId(el.componentId) || 
-                                  (parenEl && (parenEl.isNew || isTemporaryId(parenEl.componentId))) || 
-                                  (dialogueEl.isNew || isTemporaryId(dialogueEl.componentId));
-                    // Use dialogueEl's componentId as the primary for the bundled backend component
-                    const baseCompId = dialogueEl.componentId; 
+                if (dialogueEl) {
+                    const isNewBlock = el.isNew || isTemporaryId(el.componentId) ||
+                                    (parenEl && (parenEl.isNew || isTemporaryId(parenEl.componentId))) ||
+                                    (dialogueEl.isNew || isTemporaryId(dialogueEl.componentId));
+                    const baseCompIdForDialogue = dialogueEl.componentId;
                     const apiCompToAdd = {
                         component_type: ComponentTypeFE.DIALOGUE,
-                        position: el.position!, 
+                        position: el.position!,
                         content: stripHtml(dialogueEl.content),
                         character_name: charName,
                         parenthetical: parenText,
-                        ...(isNewEffective || isTemporaryId(baseCompId) ? { frontendId: baseCompId } : { id: baseCompId })
+                        ...(isNewBlock || isTemporaryId(baseCompIdForDialogue) ? { frontendId: baseCompIdForDialogue } : { id: baseCompIdForDialogue })
                     };
                     apiComponentsForSegment.push(apiCompToAdd);
-                    // If these parts were just bundled, don't also send them as individually modified.
-                    if(!isTemporaryId(el.componentId) && el.componentId) modifiedComponentIdsRef.current.delete(el.componentId);
-                    if(parenEl && !isTemporaryId(parenEl.componentId) && parenEl.componentId) modifiedComponentIdsRef.current.delete(parenEl.componentId);
-                    if(!isTemporaryId(dialogueEl.componentId) && dialogueEl.componentId) modifiedComponentIdsRef.current.delete(dialogueEl.componentId);
-
-                    i += (parenEl ? 2 : 1); // Advance past character, (optional parenthetical), and dialogue
-                } else { // Standalone character, not part of a full dialogue block
+                    if (!isTemporaryId(el.componentId)) modifiedComponentIdsRef.current.delete(el.componentId);
+                    if (parenEl && !isTemporaryId(parenEl.componentId)) modifiedComponentIdsRef.current.delete(parenEl.componentId);
+                    i += (parenEl ? 2 : 1);
+                } else {
                      apiComponentsForSegment.push({
                         component_type: mapElementTypeToComponentType(el.type),
                         position: el.position!, content: stripHtml(el.content),
@@ -661,7 +700,7 @@ export function ScriptEditor({ scriptId, initialViewMode = 'script', scriptState
                         ...(el.isNew || isTemporaryId(el.componentId) ? { frontendId: el.componentId } : { id: el.componentId })
                     });
                 }
-            } else { // Not a 'character' element
+            } else {
                  apiComponentsForSegment.push({
                     component_type: mapElementTypeToComponentType(el.type),
                     position: el.position!, content: stripHtml(el.content),
@@ -670,25 +709,24 @@ export function ScriptEditor({ scriptId, initialViewMode = 'script', scriptState
             }
             i++;
         }
-        
-        if (isTemporaryId(segmentId)) { // This is a new segment
+        if (isTemporaryId(segmentId)) {
             const firstElement = segmentElementsFromMap[0];
-            if (!firstElement || apiComponentsForSegment.length === 0) return; 
+            if (!firstElement || apiComponentsForSegment.length === 0) return;
             payload.newSegments.push({
                 frontendId: segmentId,
-                // Use segmentPosition from the first element, ensuring it's a number
-                segmentNumber: typeof firstElement.segmentPosition === 'number' ? firstElement.segmentPosition : Date.now(),
+                segmentNumber: firstElement.segmentPosition || Date.now(),
                 components: apiComponentsForSegment
-                                .filter(c => c.frontendId) // Only new components for new segments
-                                .map(c => ({...c, component_type: c.component_type as ComponentTypeFE }))
+                                .filter(c => 'frontendId' in c && c.frontendId)
+                                .map(c => ({...c, component_type: c.component_type as ComponentTypeFE } as NewComponentForSegment))
             });
-        } else { // This is an existing segment
+        } else {
             apiComponentsForSegment.forEach(apiComp => {
-                if (apiComp.frontendId && !apiComp.id) { // It's a new component in an existing segment
+                if ('frontendId' in apiComp && apiComp.frontendId) {
                     payload.newComponentsInExistingSegments.push({
-                        ...(apiComp), segment_id: segmentId, component_type: apiComp.component_type as ComponentTypeFE
+                        ...(apiComp as Omit<NewComponentForSegment, 'frontendId'> & { frontendId: string; component_type: ComponentTypeFE; position: number; content: string; character_name?: string; parenthetical?: string }),
+                        segment_id: segmentId,
                     });
-                } else if (apiComp.id && modifiedComponentIdsRef.current.has(apiComp.id)) { // It's a changed component
+                } else if ('id' in apiComp && apiComp.id && modifiedComponentIdsRef.current.has(apiComp.id)) {
                     if (!payload.changedSegments[segmentId]) payload.changedSegments[segmentId] = [];
                     payload.changedSegments[segmentId].push(apiComp as ComponentChange);
                 }
@@ -696,210 +734,136 @@ export function ScriptEditor({ scriptId, initialViewMode = 'script', scriptState
         }
     });
     console.log("Generated Save Payload:", JSON.stringify(payload, null, 2));
-    console.log("DeletedComponentIds:", Array.from(deletedComponentIdsRef.current));
-    console.log("DeletedSegmentIds:", Array.from(deletedSegmentIdsRef.current));
     return payload;
   };
-  
+
   const handleSave = async () => {
     if (!scriptId) { showAlert('error', 'Script ID is missing. Cannot save.'); return; }
-    // Recalculate hasAnyChanges based on current state of refs and elements
-    const hasAnyRealChanges = elementsRef.current.some(el => el.isNew === true || isTemporaryId(el.componentId)) ||
-                         modifiedComponentIdsRef.current.size > 0 ||
-                         deletedComponentIdsRef.current.size > 0 ||
-                         deletedSegmentIdsRef.current.size > 0;
-
-    if (!hasAnyRealChanges && !hasUnsavedChanges) { // Check both explicit flag and calculated
-      showAlert('info', 'No changes to save.');
-      return;
+    const payload = generateSavePayload();
+    const hasBackendChanges = Object.keys(payload.changedSegments).length > 0 ||
+                             payload.deletedElements.length > 0 ||
+                             payload.deletedSegments.length > 0 ||
+                             payload.newSegments.length > 0 ||
+                             payload.newComponentsInExistingSegments.length > 0;
+    if (!hasBackendChanges && !elements.some(el => el.isNew)) {
+        if (hasUnsavedChanges) {
+             setHasUnsavedChanges(false);
+             setSaveCycle(prev => prev + 1);
+             showAlert('info', 'No effective changes to save.');
+        } else {
+            showAlert('info', 'No changes to save.');
+        }
+        return;
     }
-
     setIsSaving(true);
     try {
-      const payload = generateSavePayload();
-      if (Object.keys(payload.changedSegments).length === 0 && payload.deletedElements.length === 0 &&
-          payload.deletedSegments.length === 0 && payload.newSegments.length === 0 &&
-          payload.newComponentsInExistingSegments.length === 0) {
-        showAlert('info', 'No effective changes to persist to backend.');
-        // Still, reset frontend state as if saved, because user might have undone changes.
-        setElements(prev => prev.map(el => ({ ...el, isNew: false }))); 
-        setSaveCycle(prev => prev + 1); // Triggers baseline reset
-        // setHasUnsavedChanges(false); // This will be set by the saveCycle useEffect
-        setIsSaving(false);
-        return;
-      }
-
       const response = await api.saveScriptChanges(scriptId, payload);
       if (response.success) {
-        // Update frontend elements with IDs from backend and mark as not new
-        setElements(prevElements => {
-          const idMappedElements = prevElements.map(el => {
-            let updatedEl = { ...el, isNew: false }; // Assume all are now persisted
-            const feSegmentId = el.sceneSegmentId;
-            const feComponentId = el.componentId;
-
-            if (feSegmentId && response.idMappings.segments[feSegmentId]) {
-              updatedEl.sceneSegmentId = response.idMappings.segments[feSegmentId];
+        setElements(prevElements => prevElements.map(el => {
+            let updatedEl = { ...el, isNew: false };
+            if (el.sceneSegmentId && response.idMappings.segments[el.sceneSegmentId]) {
+              updatedEl.sceneSegmentId = response.idMappings.segments[el.sceneSegmentId];
             }
-            if (feComponentId && response.idMappings.components[feComponentId]) {
-              updatedEl.componentId = response.idMappings.components[feComponentId];
+            const originalComponentIdForMapping = el.componentId;
+            if (originalComponentIdForMapping && response.idMappings.components[originalComponentIdForMapping]) {
+              updatedEl.componentId = response.idMappings.components[originalComponentIdForMapping];
             }
             return updatedEl;
-          });
-          // Filter out elements that might have been deleted locally but then the delete failed on backend (edge case)
-          // For now, assume backend is source of truth for deletions if they were in payload.
-          // The main thing is mapping new IDs.
-          return idMappedElements;
-        });
-        
+          }).filter(el => el != null)
+        );
+        modifiedComponentIdsRef.current.clear();
+        deletedComponentIdsRef.current.clear();
+        deletedSegmentIdsRef.current.clear();
+        setHasUnsavedChanges(false);
         showAlert('success', response.message || 'Script saved successfully!');
-        setSaveCycle(prev => prev + 1); // Crucial: This triggers the useEffect to reset baseline and clear refs
-      } else { 
+        setSaveCycle(prev => prev + 1);
+      } else {
         showAlert('error', response.message || 'Failed to save script changes.');
       }
     } catch (error) {
       showAlert('error', error instanceof Error ? error.message : 'An unexpected error occurred during save.');
-    } finally { 
-      setIsSaving(false); 
+    } finally {
+      setIsSaving(false);
     }
   };
 
   const handleTypeChange = useCallback(async (id: string, newType: ElementType) => {
     const currentElements = elementsRef.current;
     let newTempSegmentId: string | undefined = undefined;
-    let newSegmentPosition: number | undefined = undefined; // This will be the timestamp for new segments
-    let originalComponentIdToDeleteIfTypeChangesSignificantly: string | undefined = undefined;
-    let newFeComponentId: string = generateTemporaryId('el'); // New temporary backend ID
-
+    let newSegmentPosition: number | undefined = undefined;
+    let originalComponentIdToDelete: string | undefined = undefined;
+    let newFeComponentIdForHeading: string = generateFrontendElementId();
     const currentElement = currentElements.find(el => el.id === id);
     if (!currentElement) return;
     const oldType = currentElement.type;
-
-    // If changing TO a scene heading FROM something else, it starts a new segment
     if (newType === 'scene-heading' && oldType !== 'scene-heading') {
-        newSegmentPosition = Date.now(); // Use timestamp for unique, sortable position for new segments
-        newTempSegmentId = generateTemporaryId('seg'); // New temporary segment ID
-        // If the old element was persisted, its component needs to be marked for deletion if we are essentially replacing it
-        if (!isTemporaryId(currentElement.componentId) && currentElement.componentId) {
-             originalComponentIdToDeleteIfTypeChangesSignificantly = currentElement.componentId;
-        }
+      newSegmentPosition = Date.now();
+      newTempSegmentId = generateTemporaryId('seg');
+      if (!isTemporaryId(currentElement.componentId) && currentElement.componentId) {
+         originalComponentIdToDelete = currentElement.componentId;
+      }
     }
-
     setElements(prev =>
         prev.map(el => {
             if (el.id === id) {
-                let updatedElement = { ...el, type: newType, isNew: el.isNew || (oldType !== newType) }; // Mark as new if type changes
-
+                const isContentItselfNewOrChanged = el.isNew || (oldType !== newType);
                 if (newType === 'scene-heading' && oldType !== 'scene-heading') {
-                    // This element becomes a new scene heading in a new segment
-                    updatedElement.sceneSegmentId = newTempSegmentId;
-                    updatedElement.segmentPosition = newSegmentPosition;
-                    updatedElement.componentId = newFeComponentId; // Assign new temp backend ID
-                    updatedElement.position = DEFAULT_COMPONENT_POSITION_INCREMENT; // Default position within new segment
-                    updatedElement.isNew = true; // Definitely a new component for backend
-                } else if (oldType === 'scene-heading' && newType !== 'scene-heading') {
-                    // This element was a scene heading but is no longer. It needs to join the previous segment.
-                    // Find the segment ID and position of the scene heading BEFORE this one (if any)
-                    const currentElementIndex = prev.findIndex(pEl => pEl.id === el.id);
-                    let newParentSegmentId = generateTemporaryId('seg'); // Fallback
-                    let newParentSegmentPos = Date.now(); // Fallback
-                    let foundPreviousSegment = false;
-                    for (let i = currentElementIndex - 1; i >= 0; i--) {
-                        if (prev[i].type === 'scene-heading') {
-                            newParentSegmentId = prev[i].sceneSegmentId!;
-                            newParentSegmentPos = prev[i].segmentPosition!;
-                            foundPreviousSegment = true;
-                            break;
+                    return {
+                        ...el, type: newType,
+                        sceneSegmentId: newTempSegmentId,
+                        segmentPosition: newSegmentPosition,
+                        componentId: newFeComponentIdForHeading,
+                        position: DEFAULT_COMPONENT_POSITION_INCREMENT,
+                        isNew: true,
+                        id: generateFrontendElementId()
+                    };
+                } else {
+                    let finalSegmentId = el.sceneSegmentId;
+                    let finalSegmentPos = el.segmentPosition;
+                    if (oldType === 'scene-heading' && newType !== 'scene-heading') {
+                        const currentElementIndex = prev.findIndex(pEl => pEl.id === el.id);
+                        let foundPreviousHeading = false;
+                        for (let i = currentElementIndex - 1; i >= 0; i--) {
+                            if (prev[i].type === 'scene-heading') {
+                                finalSegmentId = prev[i].sceneSegmentId;
+                                finalSegmentPos = prev[i].segmentPosition;
+                                foundPreviousHeading = true;
+                                break;
+                            }
+                        }
+                        if (!foundPreviousHeading) {
+                            finalSegmentId = generateTemporaryId('seg');
+                            finalSegmentPos = Date.now();
+                        }
+                         if (!isTemporaryId(el.componentId)) {
+                            modifiedComponentIdsRef.current.add(el.componentId);
                         }
                     }
-                    updatedElement.sceneSegmentId = newParentSegmentId;
-                    updatedElement.segmentPosition = newParentSegmentPos; 
-                    // Position within this segment (needs recalc based on others in newParentSegmentId) - simplify for now
-                    updatedElement.position = (updatedElement.position || 0) + DEFAULT_COMPONENT_POSITION_INCREMENT; // Placeholder
-                    // The original scene segment ID (if it only contained this heading) might need to be marked for deletion.
-                    // This is handled by `originalComponentIdToDeleteIfTypeChangesSignificantly` if the component itself is "replaced".
-                }
-                
-                // If type changed and old component was persisted, mark old one as modified (or handle as delete+add by generateSavePayload)
-                if (oldType !== newType && !isTemporaryId(el.componentId) && el.componentId) {
-                    if (newType !== 'scene-heading' || oldType === 'scene-heading') { // If not becoming a new scene heading component
+                    if (oldType !== newType && !isTemporaryId(el.componentId) && el.componentId) {
                         modifiedComponentIdsRef.current.add(el.componentId);
                     }
+                    return {
+                        ...el,
+                        type: newType,
+                        sceneSegmentId: finalSegmentId,
+                        segmentPosition: finalSegmentPos,
+                        isNew: el.isNew || isContentItselfNewOrChanged || (oldType === 'scene-heading' && newType !== 'scene-heading')
+                    };
                 }
-                return updatedElement;
             }
             return el;
         })
     );
+    if (originalComponentIdToDelete) deletedComponentIdsRef.current.add(originalComponentIdToDelete);
+  }, []);
 
-    // If we created a new scene heading component replacing a persisted non-scene heading, mark old for deletion.
-    if (originalComponentIdToDeleteIfTypeChangesSignificantly) {
-        deletedComponentIdsRef.current.add(originalComponentIdToDeleteIfTypeChangesSignificantly);
-        console.log(`Marked component ${originalComponentIdToDeleteIfTypeChangesSignificantly} for deletion due to type change to scene-heading.`);
-    }
-    setHasUnsavedChanges(true);
-  }, []); // Removed elements from deps as elementsRef.current is used
-  
-  // Global keydown for Delete/Backspace to mark empty elements for deletion
-  useEffect(() => {
-    const handleKeyboardDelete = (event: KeyboardEvent) => {
-      if ((event.key === 'Delete' || event.key === 'Backspace') && selectedElement) {
-        const activeEl = document.activeElement;
-        const isEditorActive = activeEl && activeEl.classList.contains('ProseMirror');
-
-        if (isEditorActive) { // Only act if Tiptap editor has focus
-            const elToDelete = elementsRef.current.find(el => el.id === selectedElement);
-            if (elToDelete) {
-                const editorInstance = elementRefs.current[elToDelete.id]?.current?.getEditor?.(); // Assuming getEditor is exposed
-                const isContentEffectivelyEmpty = editorInstance ? editorInstance.isEmpty : (stripHtml(elToDelete.content).trim() === '');
-
-                if (isContentEffectivelyEmpty) {
-                    // This deletion path is for when an element is already empty and user hits delete/backspace.
-                    // The more robust path is through ScriptElement's onKeyDown -> mergeUp.
-                    // This global listener acts as a fallback.
-                    if (!isTemporaryId(elToDelete.componentId) && elToDelete.componentId) {
-                        if (!deletedComponentIdsRef.current.has(elToDelete.componentId)) {
-                            deletedComponentIdsRef.current.add(elToDelete.componentId);
-                            console.log(`Global delete: Marked component ${elToDelete.componentId} for deletion.`);
-                            if (elToDelete.type === 'scene-heading' && !isTemporaryId(elToDelete.sceneSegmentId) && elToDelete.sceneSegmentId) {
-                                if(!deletedSegmentIdsRef.current.has(elToDelete.sceneSegmentId)){
-                                   deletedSegmentIdsRef.current.add(elToDelete.sceneSegmentId);
-                                   console.log(`Global delete: Marked segment ${elToDelete.sceneSegmentId} for deletion.`);
-                                }
-                            }
-                            setHasUnsavedChanges(true);
-                            
-                            // Actually remove the element from UI and state
-                            const currentIndex = elementsRef.current.findIndex(e => e.id === elToDelete.id);
-                            setElements(prevElements => prevElements.filter(e => e.id !== elToDelete.id));
-                            
-                            if (currentIndex > 0) {
-                                setSelectedElement(elementsRef.current[currentIndex - 1].id);
-                            } else if (elementsRef.current.length > 1) { // Was first, select next
-                                setSelectedElement(elementsRef.current[0].id); // elementsRef is now one shorter
-                            } else {
-                                // TODO: Handle deleting the last element - perhaps create a new empty one
-                                const newFirstId = createNewElement('scene-heading', ''); // Create a new default element
-                                setSelectedElement(newFirstId);
-                            }
-                        }
-                    }
-                }
-            }
-        }
-      }
-    };
-    document.addEventListener('keydown', handleKeyboardDelete);
-    return () => document.removeEventListener('keydown', handleKeyboardDelete);
-  }, [selectedElement, elements, createNewElement]); // Added elements and createNewElement
-  
   const handleDeleteComment = (commentId: string) => { setComments(prev => prev.filter(c => c.id !== commentId)); setActiveCommentId(null); };
   const handleAddComment = (comment: Comment) => { setComments(prev => [...prev, comment]); setActiveCommentId(comment.id); };
   const handleCommentClick = (comment: Comment) => {
     const elementId = elementsRef.current.find(el => elementRefs.current[el.id]?.current?.containsCommentRange?.(comment.from, comment.to))?.id;
     if (elementId) { setSelectedElement(elementId); setActiveCommentId(comment.id); elementRefs.current[elementId].current?.focusCommentRange?.(comment.from, comment.to); }
   };
-  
+
   const formatFountainContent = () => {
     const titlePg = `Title: ${titlePage.title}\nAuthor: ${titlePage.author}\nContact: ${titlePage.contact}\nDate: ${titlePage.date}\nDraft: ${titlePage.draft}\nCopyright: ${titlePage.copyright}\n\n===\n\n`;
     return titlePg + elementsRef.current.map(el => {
@@ -915,18 +879,17 @@ export function ScriptEditor({ scriptId, initialViewMode = 'script', scriptState
       }
     }).join('');
   };
-  
   const handleExport = () => {
     const content = formatFountainContent(); const blob = new Blob([content],{type:'text/plain'});
     const url = URL.createObjectURL(blob); const a = document.createElement('a');
     a.href=url; a.download=`${titlePage.title||'Untitled'}.fountain`; document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url);
   };
-  
+
   const handleAIAssistClick = () => {
     if (!suggestionsEnabled) setSuggestionsEnabled(true);
     if (!hasOpenedAIAssistant) { setIsRightSidebarOpen(true); setHasOpenedAIAssistant(true); }
   };
-  
+
   const handleApplySuggestion = (content: string) => {
     if (selectedElement) {
       const currentElement = elementsRef.current.find(el => el.id === selectedElement);
@@ -947,12 +910,11 @@ export function ScriptEditor({ scriptId, initialViewMode = 'script', scriptState
               lastId = createNewElement(newType, lastId); handleElementChange(lastId, line);
             } setSelectedElement(lastId);
           } else handleElementChange(selectedElement, content);
-          setHasUnsavedChanges(true);
         }
       }
     }
   };
-  
+
   useEffect(() => {
     const root = document.documentElement;
     Object.entries(formatSettings.elements).forEach(([type, format]) => {
@@ -963,22 +925,51 @@ export function ScriptEditor({ scriptId, initialViewMode = 'script', scriptState
     root.style.setProperty('--page-margin-top', `${formatSettings.pageLayout.marginTop}in`); root.style.setProperty('--page-margin-right', `${formatSettings.pageLayout.marginRight}in`);
     root.style.setProperty('--page-margin-bottom', `${formatSettings.pageLayout.marginBottom}in`); root.style.setProperty('--page-margin-left', `${formatSettings.pageLayout.marginLeft}in`);
   }, [formatSettings]);
-    
+
   useEffect(() => {
-    elementsRef.current.forEach(element => { 
+    const handleKeyboardDelete = (event: KeyboardEvent) => {
+      if ((event.key === 'Delete' || event.key === 'Backspace') && selectedElement) {
+        const elToDelete = elementsRef.current.find(el => el.id === selectedElement);
+        if (elToDelete?.content === '' && !isTemporaryId(elToDelete.componentId) && elToDelete.componentId) {
+          deletedComponentIdsRef.current.add(elToDelete.componentId);
+          if (elToDelete.type === 'scene-heading' && !isTemporaryId(elToDelete.sceneSegmentId) && elToDelete.sceneSegmentId) {
+            deletedSegmentIdsRef.current.add(elToDelete.sceneSegmentId);
+          }
+        }
+      }
+    };
+    document.addEventListener('keydown', handleKeyboardDelete);
+    return () => document.removeEventListener('keydown', handleKeyboardDelete);
+  }, [selectedElement]);
+
+  useEffect(() => {
+    const calculatePgs = () => {
+      if (!contentRef.current) return; const pageH = formatSettings.pageLayout.height * 72;
+      const breaks: number[] = []; let currentH = 0; const editorEls = contentRef.current.children;
+      for (let i = 0; i < editorEls.length; i++) {
+        const el = editorEls[i] as HTMLElement; const elH = el.offsetHeight;
+        if (currentH + elH > pageH) { breaks.push(i); currentH = elH; } else { currentH += elH; }
+      } setPages(breaks);
+    }; calculatePgs(); const resObs = new ResizeObserver(calculatePgs);
+    if (contentRef.current) resObs.observe(contentRef.current);
+    return () => resObs.disconnect();
+  }, [elements, formatSettings]);
+
+  useEffect(() => {
+    elementsRef.current.forEach(element => {
       if (!elementRefs.current[element.id]) elementRefs.current[element.id] = React.createRef();
     });
   }, [elements]);
-  
+
   useEffect(() => {
     const prof = userProfiles.find(p => p.id === activeProfile);
     if (prof) setFormatSettings(prof.preferences.formatSettings);
   }, [activeProfile, userProfiles]);
-  
+
   useEffect(() => {
     if (!suggestionsEnabled && isRightSidebarOpen) setIsRightSidebarOpen(false);
   }, [suggestionsEnabled, isRightSidebarOpen]);
-  
+
   useEffect(() => {
     const fetchMeta = async () => {
       if (scriptId) {
@@ -995,54 +986,53 @@ export function ScriptEditor({ scriptId, initialViewMode = 'script', scriptState
   useEffect(() => {
     setTitlePage(prev => ({ ...prev, title: (scriptMetadata?.title || 'UNTITLED SCRIPT').toUpperCase(), author: user?.user_metadata?.full_name || user?.email || '' }));
   }, [scriptMetadata, user]);
-  
-  const handleRetry = () => { setHasAttemptedLoad(false); setLoadError(null); loadedScriptIdRef.current = null; };
-  
-  const handleRequestExpansion = async (componentIdToExpand: string, actionType: AIActionType) => {
+
+  const handleRetry = () => { setHasAttemptedLoad(false); setLoadError(null); loadedScriptIdRef.current = null; setIsLoadingScript(true); isInitialLoadCompleteRef.current = false; };
+
+  const handleRequestExpansion = async (componentIdToExpand: string, actionType: AIActionType | ApiExpansionType) => {
     if (!componentIdToExpand) {
       showAlert('error', 'Cannot perform AI action: Missing component ID.');
-      setIsRightSidebarOpen(false); 
+      setIsRightSidebarOpen(false);
       return;
     }
     const targetElement = elementsRef.current.find(el => el.componentId === componentIdToExpand);
-    if ((targetElement && (targetElement.isNew || isTemporaryId(targetElement.componentId)) ) || hasUnsavedChanges) {
+    if ((targetElement && targetElement.isNew) || isTemporaryId(componentIdToExpand) || hasUnsavedChanges) {
       showAlert('warning', 'Please save your script before using AI actions to ensure all content is processed.');
-      setIsRightSidebarOpen(false); 
+      setIsRightSidebarOpen(false);
       return;
     }
     console.log("Requesting AI action for:", componentIdToExpand, "Action:", actionType);
     try {
-      setIsLoadingExpansion(true); setIsRightSidebarOpen(true); 
+      setIsLoadingExpansion(true); setIsRightSidebarOpen(true);
       setExpansionResults(null); setActiveExpansionComponentId(null); setActiveExpansionActionType(null);
       let results: ExpandComponentResponse | null = null;
       if (actionType === "expand") results = await api.expandComponent(componentIdToExpand);
       else if (actionType === "shorten") results = await api.shortenComponent(componentIdToExpand);
       else if (actionType === "continue") results = await api.continueComponent(componentIdToExpand);
       else if (actionType === "rewrite") results = await api.rewriteComponent(componentIdToExpand);
-      
-      if (results) { setExpansionResults(results); setActiveExpansionComponentId(componentIdToExpand); setActiveExpansionActionType(actionType); } 
+
+      if (results) { setExpansionResults(results); setActiveExpansionComponentId(componentIdToExpand); setActiveExpansionActionType(actionType); }
       else { showAlert('info', `AI action '${actionType}' did not return specific suggestions for this content.`); }
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Failed to perform AI action.';
       if (errorMessage.includes("Invalid request parameters") || (error as any)?.response?.status === 422) {
          showAlert('error', 'AI Assistant could not process the request. Please ensure the content is saved and try again.');
       } else { showAlert('error', errorMessage); }
-      setIsRightSidebarOpen(false); 
+      setIsRightSidebarOpen(false);
     } finally { setIsLoadingExpansion(false); }
   };
-  
-  const handleApplyTransform = async (alternativeText: string, expansionKey: ExpansionType) => {
+
+  const handleApplyTransform = async (alternativeText: string, expansionKey: ApiExpansionType) => {
     if (!activeExpansionComponentId || !activeExpansionActionType) { showAlert('error', 'Cannot apply: No active transformation.'); return; }
     try {
       setIsLoadingExpansion(true);
-      const response = await api.applyTransform(activeExpansionComponentId, activeExpansionActionType, alternativeText);
+      const response = await api.applyTransform(activeExpansionComponentId, activeExpansionActionType as (AIActionType | ApiExpansionType), alternativeText);
       if (response.component) {
         setElements(prevElements =>
           prevElements.map(el => {
             if (el.componentId === response.component.id) {
-              if(!isTemporaryId(el.componentId)) { // Should always be true here if AI action was allowed
-                modifiedComponentIdsRef.current.add(el.componentId); 
-                // setHasUnsavedChanges(true); // This will be handled by saveCycle
+              if(!isTemporaryId(el.componentId)) {
+                modifiedComponentIdsRef.current.add(el.componentId);
               }
               return { ...el, content: response.component.content || '' };
             } return el;
@@ -1050,16 +1040,12 @@ export function ScriptEditor({ scriptId, initialViewMode = 'script', scriptState
         );
         showAlert('success', response.message || 'Changes applied!');
         setExpansionResults(null); setActiveExpansionComponentId(null); setActiveExpansionActionType(null);
-        
-        console.log("Triggering saveCycle increment after handleApplyTransform");
-        setSaveCycle(prev => prev + 1); // This resets the baseline via useEffect and marks as saved
       } else { throw new Error('API response missing updated component.'); }
     } catch (error) { showAlert('error', error instanceof Error ? error.message : 'Failed to apply changes.');
     } finally { setIsLoadingExpansion(false); }
   };
 
-  // ---- Render Logic ----
-  if (isLoadingScript && !hasAttemptedLoad) {
+  if (isLoadingScript && !hasAttemptedLoad && !isInitialLoadCompleteRef.current) {
     return (<div className="h-screen bg-gray-100 flex items-center justify-center"><div className="bg-white rounded-lg shadow-lg p-6 text-center">
           <RefreshCw className="animate-spin rounded-full h-12 w-12 text-blue-500 mx-auto mb-4" />
           <p className="text-lg font-medium text-gray-700">Loading script...</p></div></div>);
@@ -1073,9 +1059,8 @@ export function ScriptEditor({ scriptId, initialViewMode = 'script', scriptState
             <button onClick={() => window.location.href = '/'} className="px-4 py-2 border border-gray-300 text-gray-700 rounded-md hover:bg-gray-50">
               Back to Home</button></div></div></div>);
   }
-  
-  const isScriptEffectivelyEmpty = elementsRef.current.length === 0 || (elementsRef.current.length === 1 && elementsRef.current[0].type === 'scene-heading' && stripHtml(elementsRef.current[0].content).trim() === '' && isTemporaryId(elementsRef.current[0].sceneSegmentId));
-  
+
+  const isScriptEffectivelyEmpty = elementsRef.current.length === 0 || (elementsRef.current.length === 1 && elementsRef.current[0].type === 'scene-heading' && elementsRef.current[0].content === '' && isTemporaryId(elementsRef.current[0].sceneSegmentId));
   const showGenNextSceneButton = scriptMetadata?.creationMethod === 'WITH_AI' &&
                                  (scriptState.state === 'firstSceneGenerated' || scriptState.state === 'multipleScenes') &&
                                  !scriptState.context.isComplete;
@@ -1109,17 +1094,16 @@ export function ScriptEditor({ scriptId, initialViewMode = 'script', scriptState
             onDeleteComment={handleDeleteComment} onCommentClick={handleCommentClick}
           />
         )}
-        {viewMode === 'beats' ? (
+        {viewMode === 'beats' ?
+        (
           <div className="flex-1 overflow-hidden">
-            <BeatSheetView 
-                title={title} 
-                onSwitchToScript={() => setViewMode('script')}
-                onGeneratedScriptElements={handleGeneratedScriptElements}
-                currentSceneSegmentId={currentSceneSegmentId} 
-                beatsAvailable={beatsAvailable}
+            <BeatSheetView title={title} onSwitchToScript={() => setViewMode('script')}
+              onGeneratedScriptElements={handleGeneratedScriptElements}
+              currentSceneSegmentId={currentSceneSegmentId} beatsAvailable={beatsAvailable}
             />
           </div>
-        ) : viewMode === 'boards' ? (
+        ) : viewMode === 'boards' ?
+        (
           <div className="flex-1 flex items-center justify-center bg-gray-100">
             <div className="text-center p-8"><h2 className="text-xl font-semibold text-gray-800 mb-4">Boards View</h2><p className="text-gray-600">This feature is coming soon.</p></div>
           </div>
@@ -1131,54 +1115,55 @@ export function ScriptEditor({ scriptId, initialViewMode = 'script', scriptState
                   padding: `var(--page-margin-top, ${formatSettings.pageLayout.marginTop}in) var(--page-margin-right, ${formatSettings.pageLayout.marginRight}in) var(--page-margin-bottom, ${formatSettings.pageLayout.marginBottom}in) var(--page-margin-left, ${formatSettings.pageLayout.marginLeft}in)`,
                   minHeight: `var(--page-height, ${formatSettings.pageLayout.height}in)`
                 }}>
-                  <ScriptContentLoader // Handles initial loading and shows empty state if needed
+                  <ScriptContentLoader
                     scriptId={scriptId} creationMethod={scriptMetadata?.creationMethod || 'FROM_SCRATCH'}
-                    initialElements={elementsRef.current} // Pass current elements for it to decide if it needs to load
-                    onElementsLoaded={(loadedElements) => { // Callback when it loads new elements
-                        const processed = loadedElements.map(el => ({...el, isNew: false, id: generateFrontendElementId() }));
-                        setElements(processed); 
+                    initialElements={elementsRef.current}
+                    onElementsLoaded={(loadedElements) => {
+                        const processed = loadedElements.map(el => ({...el, isNew: false, id: el.id || generateFrontendElementId() }));
+                        setElements(processed);
+                        initialElementsRef.current = deepCopyElements(processed);
+                        setHasUnsavedChanges(false);
                         if (processed.length > 0) {
                             setSelectedElement(processed[0].id);
                             const lastSeg = processed.reduce((latest, current) => (current.segmentPosition || 0) > (latest.segmentPosition || 0) ? current : latest, processed[0]);
                             if(lastSeg?.sceneSegmentId) setCurrentSceneSegmentId(lastSeg.sceneSegmentId);
                         }
-                        // Initial load is handled by isLoadingScript, no explicit saveCycle++ here,
-                        // as this is part of the initial setup.
                     }}
                     onSceneSegmentIdUpdate={setCurrentSceneSegmentId} showAlert={showAlert}
-                    isGeneratingFirstScene={isGeneratingFirstScene} 
-                    onGenerateScript={handleGenerateScript} 
+                    isGeneratingFirstScene={isGeneratingFirstScene} onGenerateScript={handleGenerateScript}
                   />
-                  {/* Render elements only if not effectively empty, or if ScriptContentLoader decided not to show empty state */}
-                  {(!isScriptEffectivelyEmpty || (scriptMetadata?.creationMethod === 'WITH_AI' && elementsRef.current.length > 0)) && elementsRef.current.map((element, index) => ( 
+                  {isScriptEffectivelyEmpty && scriptMetadata?.creationMethod === 'FROM_SCRATCH' && !isLoadingScript && (
+                      <ScriptEmptyState scriptType="MANUAL" onGenerateScript={() => {}} isGenerating={false} />
+                   )}
+                  {elements.map((element, index) => (
                     <div key={element.id} className="element-wrapper" data-type={element.type} style={{
-                       textAlign: formatSettings.elements[element.type]?.alignment || 'left',
-                       marginTop: `var(--${element.type}-spacing-before, ${formatSettings.elements[element.type]?.spacingBefore || 0}rem)`,
-                       marginBottom: `var(--${element.type}-spacing-after, ${formatSettings.elements[element.type]?.spacingAfter || 0}rem)`
+                      textAlign: formatSettings.elements[element.type]?.alignment || 'left',
+                      marginTop: `var(--${element.type}-spacing-before, ${formatSettings.elements[element.type]?.spacingBefore || 0}rem)`,
+                      marginBottom: `var(--${element.type}-spacing-after, ${formatSettings.elements[element.type]?.spacingAfter || 0}rem)`
                     }}>
                       {pages.includes(index) && (<div className="page-break"><div className="page-number">Page {pages.findIndex(p => p === index) + 2}</div></div>)}
                       <MemoizedScriptElement
-                        id={element.id} 
-                        type={element.type} content={element.content}
+                        id={element.id} type={element.type} content={element.content}
                         isSelected={selectedElement === element.id}
                         onChange={handleElementChange} onKeyDown={handleKeyDown} onFocus={setSelectedElement}
                         onTypeChange={handleTypeChange}
-                        autoFocus={element.id === elementsRef.current[elementsRef.current.length - 1]?.id && elementsRef.current.length > 1 && element.isNew === true}
+                        autoFocus={element.id === elements[elements.length - 1]?.id && elements.length > 1 && element.isNew === true}
                         onAIAssistClick={handleAIAssistClick} elements={elementsRef.current} onAddComment={handleAddComment}
                         activeCommentId={activeCommentId}
                         comments={comments.filter(c => elementRefs.current[element.id]?.current?.containsCommentRange?.(c.from, c.to))}
                         formatSettings={formatSettings.elements[element.type]}
                         suggestions={suggestionsEnabled ? suggestions : undefined}
                         showAITools={suggestionsEnabled} elementRef={elementRefs.current[element.id]}
-                        onRequestExpansion={handleRequestExpansion} componentId={element.componentId}
+                        onRequestExpansion={(componentIdToExpand, actionType) => handleRequestExpansion(componentIdToExpand, actionType as AIActionType | ApiExpansionType)}
+                        componentId={element.componentId}
                         onNavigateElement={handleNavigateElement}
                       />
                     </div>
                   ))}
                 </div>
               </ScrollPositionManager>
-              {showGenNextSceneButton && ( 
-                <GenerateNextSceneButton 
+              {showGenNextSceneButton && (
+                <GenerateNextSceneButton
                   onClick={handleGenerateNextScene} visible={true} isLoading={isGeneratingNextScene} />
               )}
             </div>
@@ -1193,22 +1178,21 @@ export function ScriptEditor({ scriptId, initialViewMode = 'script', scriptState
           </div>
         )}
         {viewMode !== 'beats' && (
-          <RightSidebar 
-            isOpen={isRightSidebarOpen} setIsOpen={setIsRightSidebarOpen} onApplySuggestion={handleApplySuggestion}
+          <RightSidebar isOpen={isRightSidebarOpen} setIsOpen={setIsRightSidebarOpen} onApplySuggestion={handleApplySuggestion}
             selectedElementId={selectedElement} expansionResults={expansionResults}
-            isLoadingExpansion={isLoadingExpansion} onApplyTransformRequest={handleApplyTransform}
-            activeExpansionComponentId={activeExpansionComponentId} activeExpansionActionType={activeExpansionActionType}
+            isLoadingExpansion={isLoadingExpansion}
+            onApplyTransformRequest={handleApplyTransform}
+            activeExpansionComponentId={activeExpansionComponentId}
+            activeExpansionActionType={activeExpansionActionType as AIActionType | undefined}
           />
         )}
       </div>
       <TitlePageModal show={showTitlePageModal} onClose={() => setShowTitlePageModal(false)} titlePage={titlePage} setTitlePage={setTitlePage} setTitle={setTitle} />
-      <SettingsModal 
-        show={showSettingsModal} onClose={() => setShowSettingsModal(false)} settings={formatSettings} setSettings={setFormatSettings}
+      <SettingsModal show={showSettingsModal} onClose={() => setShowSettingsModal(false)} settings={formatSettings} setSettings={setFormatSettings}
         suggestions={suggestions} setSuggestions={setSuggestions} userProfiles={userProfiles} setUserProfiles={setUserProfiles}
         activeProfile={activeProfile} setActiveProfile={setActiveProfile} suggestionsEnabled={suggestionsEnabled} setSuggestionsEnabled={setSuggestionsEnabled}
       />
-      <AccountSettingsModal 
-        isOpen={showAccountSettingsModal} onClose={() => setShowAccountSettingsModal(false)}
+      <AccountSettingsModal isOpen={showAccountSettingsModal} onClose={() => setShowAccountSettingsModal(false)}
         displayName={user?.user_metadata?.full_name || user?.email || 'User'} email={user?.email || ''}
         onChangeDisplayName={handleChangeDisplayName} onChangeEmail={handleChangeEmail}
       />

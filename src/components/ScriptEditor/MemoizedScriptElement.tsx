@@ -1,6 +1,6 @@
 import React, { memo } from 'react';
 import { ScriptElement } from '../ScriptElement';
-import { ElementType, ElementFormat, Comment } from '../../types/screenplay';
+import { ElementType, ElementFormat, Comment, AIActionType } from '../../types/screenplay';
 
 interface MemoizedScriptElementProps {
   id: string;
@@ -22,7 +22,7 @@ interface MemoizedScriptElementProps {
   showAITools?: boolean;
   elementRef: React.RefObject<any>;
   componentId?: string;
-  onRequestExpansion?: (componentId: string) => void;
+  onRequestExpansion?: (componentId: string, actionType: AIActionType) => void;
   onNavigateElement: (currentId: string, direction: 'up' | 'down') => void;
 }
 
