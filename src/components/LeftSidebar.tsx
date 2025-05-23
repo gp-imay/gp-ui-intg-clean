@@ -15,7 +15,8 @@ import {
   Italic,
   Underline,
   StrikethroughIcon,
-  X
+  X,
+  Construction
 } from 'lucide-react';
 import { SidebarTab, Comment } from '../types/screenplay';
 
@@ -69,56 +70,72 @@ export const LeftSidebar: React.FC<LeftSidebarProps> = ({
       case 'comments':
         return (
           <div className="flex-1 overflow-y-auto">
-            <div className="p-4 space-y-4">
-              {comments.length === 0 ? (
-                <div className="text-center text-gray-500 py-8">
-                  <MessageSquare className="w-8 h-8 mx-auto mb-2 opacity-50" />
-                  <p className="text-sm">No comments yet</p>
-                  <p className="text-xs mt-1">Select text and use the comment button to add comments</p>
-                </div>
-              ) : (
-                comments.map((comment) => (
-                  <div 
-                    key={comment.id}
-                    className="bg-gray-50 rounded-lg p-3 relative group hover:bg-gray-100 cursor-pointer"
-                    onClick={() => onCommentClick?.(comment)}
-                  >
-                    <div className="flex justify-between items-start mb-2">
-                      <div className="text-xs text-gray-500">
-                        {new Date(comment.createdAt).toLocaleDateString()} at{' '}
-                        {new Date(comment.createdAt).toLocaleTimeString()}
-                      </div>
-                      {onDeleteComment && (
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            onDeleteComment(comment.id);
-                          }}
-                          className="opacity-0 group-hover:opacity-100 transition-opacity text-gray-400 hover:text-gray-600 p-1 rounded-full hover:bg-gray-100"
-                          title="Delete comment"
-                        >
-                          <X className="w-3 h-3" />
-                        </button>
-                      )}
-                    </div>
-                    <p className="text-sm text-gray-700 whitespace-pre-wrap">{comment.text}</p>
-                  </div>
-                ))
-              )}
+            <div className="p-4 flex flex-col items-center justify-center h-full">
+              <Construction className="h-8 w-8 text-blue-600" />
+              <h2 className="text-1xl font-bold text-gray-900 mt-2">
+                Comments coming soon
+              </h2>
             </div>
           </div>
         );
+
+        // return (
+        //   <div className="flex-1 overflow-y-auto">
+        //     <div className="p-4 space-y-4">
+        //       {comments.length === 0 ? (
+        //         <div className="text-center text-gray-500 py-8">
+        //           <MessageSquare className="w-8 h-8 mx-auto mb-2 opacity-50" />
+        //           <p className="text-sm">No comments yet</p>
+        //           <p className="text-xs mt-1">Select text and use the comment button to add comments</p>
+        //         </div>
+        //       ) : (
+        //         comments.map((comment) => (
+        //           <div 
+        //             key={comment.id}
+        //             className="bg-gray-50 rounded-lg p-3 relative group hover:bg-gray-100 cursor-pointer"
+        //             onClick={() => onCommentClick?.(comment)}
+        //           >
+        //             <div className="flex justify-between items-start mb-2">
+        //               <div className="text-xs text-gray-500">
+        //                 {new Date(comment.createdAt).toLocaleDateString()} at{' '}
+        //                 {new Date(comment.createdAt).toLocaleTimeString()}
+        //               </div>
+        //               {onDeleteComment && (
+        //                 <button
+        //                   onClick={(e) => {
+        //                     e.stopPropagation();
+        //                     onDeleteComment(comment.id);
+        //                   }}
+        //                   className="opacity-0 group-hover:opacity-100 transition-opacity text-gray-400 hover:text-gray-600 p-1 rounded-full hover:bg-gray-100"
+        //                   title="Delete comment"
+        //                 >
+        //                   <X className="w-3 h-3" />
+        //                 </button>
+        //               )}
+        //             </div>
+        //             <p className="text-sm text-gray-700 whitespace-pre-wrap">{comment.text}</p>
+        //           </div>
+        //         ))
+        //       )}
+        //     </div>
+        //   </div>
+        // );
       case 'notes':
         return (
           <div className="flex-1 overflow-y-auto">
-            <div className="p-4">
-              <textarea
+            <div className="p-4 flex flex-col items-center justify-center h-full">
+              <Construction className="h-8 w-8 text-blue-600" />
+              <h2 className="text-1xl font-bold text-gray-900 mt-2">
+                Notes coming soon
+              </h2>
+              {/* <textarea
                 placeholder="Add general notes about your screenplay..."
                 className="w-full h-full min-h-[200px] p-3 text-sm border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-              />
+              /> */}
             </div>
           </div>
         );
+
       case 'inputs':
         return (
           <div className="flex-1 overflow-y-auto">
@@ -228,7 +245,7 @@ export const LeftSidebar: React.FC<LeftSidebarProps> = ({
             >
               <FileText className="w-4 h-4" />
             </button>
-            <button
+            {/* <button
               onClick={() => setActiveTab('comments')}
               className={`p-2 rounded-lg transition-colors relative ${
                 activeTab === 'comments' 
@@ -243,7 +260,7 @@ export const LeftSidebar: React.FC<LeftSidebarProps> = ({
                   {comments.length}
                 </span>
               )}
-            </button>
+            </button> */}
             <button
               onClick={() => setActiveTab('notes')}
               className={`p-2 rounded-lg transition-colors ${

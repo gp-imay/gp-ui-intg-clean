@@ -183,7 +183,7 @@ const loadingAnimationUrl = "https://lottie.host/b818e33d-f404-4a91-97a9-29dfa2e
               </div>
             </div>
 
-            <div className="border-t border-gray-200 pt-4">
+            {/* <div className="border-t border-gray-200 pt-4">
               <div className="flex justify-between items-center mb-3">
                 <h3 className="text-sm font-medium text-gray-700">Recent Suggestions</h3>
                 {suggestions.length > 0 && (
@@ -237,7 +237,7 @@ const loadingAnimationUrl = "https://lottie.host/b818e33d-f404-4a91-97a9-29dfa2e
                   </button>
                 </div>
               )}
-            </div>
+            </div> */}
           </div>
           )}
           </div>

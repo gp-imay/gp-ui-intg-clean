@@ -93,7 +93,7 @@ export function Header({
       <div className="max-w-full px-4 py-4 flex items-center">
         <div className="w-[300px] flex-shrink-0 flex items-center space-x-4">
           <img
-            src="[https://gplogos.blob.core.windows.net/logos/gp_beta_logo.png](https://gplogos.blob.core.windows.net/logos/gp_beta_logo.png)"
+            src="https://gplogos.blob.core.windows.net/logos/gp_beta_logo.png"
             alt="Grease Pencil"
             className="h-7 cursor-pointer"
             onClick={handleNavigateToDashboard}
@@ -159,13 +159,13 @@ export function Header({
         </div>
 
         <div className="w-[300px] flex-shrink-0 flex items-center justify-end space-x-4">
-          <button
+          {/* <button
             onClick={openSettings}
             className="p-2 rounded-full text-gray-600 hover:bg-gray-100 hover:text-blue-600 transition-colors"
             title="Settings"
           >
             <Settings className="h-5 w-5" />
-          </button>
+          </button> */}
           <button
             onClick={handleExport}
             className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-green-600 hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500"

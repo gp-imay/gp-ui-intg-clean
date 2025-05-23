@@ -124,7 +124,7 @@ export const EditorToolbar: React.FC<EditorToolbarProps> = ({
       >
         <Type className="w-4 h-4" />
       </button>
-      <button
+      {/* <button
         onClick={onComment}
         className={`p-1.5 rounded hover:bg-gray-100 ${
           showCommentInput ? 'bg-blue-100 text-blue-600' : 'text-gray-600'
@@ -132,7 +132,7 @@ export const EditorToolbar: React.FC<EditorToolbarProps> = ({
         title="Add Comment"
       >
         <MessageSquare className="w-4 h-4" />
-      </button>
+      </button> */}
       {onAIAssist && (
         <>
           {/* <div className="w-px h-6 bg-gray-200 mx-1" /> */}

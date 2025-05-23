@@ -42,6 +42,7 @@ import {
 } from '../../types/screenplay';
 import { AccountSettingsModal } from '../Dashboard/AccountSettingsModal';
 import { useAuth } from '../../contexts/AuthContext';
+import { DotLottieReact } from '@lottiefiles/dotlottie-react'; // Add this line
 
 interface ScriptEditorProps {
   scriptId: string;
@@ -147,6 +148,8 @@ export function ScriptEditor({ scriptId, initialViewMode = 'script', scriptState
   const isTemporaryId = (id: string | undefined): boolean => {
     return !!id && (id.startsWith('temp-') || id.startsWith('fe-'));
   };
+    const aiIconAnimationUrl = "https://lottie.host/48d60e8f-25ce-4874-91b4-be3a55d98b20/ilGRvxsEC9.json";
+
 
   useEffect(() => {
     if (isLoadingScript || !isInitialLoadCompleteRef.current) {
@@ -1172,10 +1175,18 @@ export function ScriptEditor({ scriptId, initialViewMode = 'script', scriptState
         {viewMode !== 'beats' && !isRightSidebarOpen && suggestionsEnabled && (
           <div className="absolute right-0 top-0 w-8 h-full z-20 flex items-center">
             <button onClick={() => setIsRightSidebarOpen(true)} className="absolute right-2 text-gray-400 p-2 rounded-full transition-all duration-200 hover:bg-white hover:shadow-lg hover:text-gray-600">
-              <div className="relative"><ChevronLeft className="h-5 w-5" /><div className="ai-icon-container absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 scale-75">
-                  <div className="ai-icon-pulse"></div><Sparkles className="ai-icon-sparkle text-blue-500" /></div></div>
+              <div className="relative">
+              <div className="w-8 h-8 [image-rendering:pixelated] [image-rendering:crisp-edges]"> {/* Add image-rendering styles */}
+          <DotLottieReact
+             src={aiIconAnimationUrl}
+              loop
+              autoplay
+          />
+      </div>
+              </div>
             </button>
           </div>
+
         )}
         {viewMode !== 'beats' && (
           <RightSidebar isOpen={isRightSidebarOpen} setIsOpen={setIsRightSidebarOpen} onApplySuggestion={handleApplySuggestion}
